@@ -732,7 +732,14 @@
           var lbl = btn ? btn.innerHTML : ""; if (btn) { btn.disabled = true; if (btn.textContent.trim()) btn.textContent = "Sending..."; }
           fetch("/api/submit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(Object.assign({ form: form.getAttribute("data-form") }, data)) })
             .then(function (r) { return r.json().then(function (j) { if (!r.ok) throw new Error(j.error || r.status); }); })
-            .then(function () { ok(); })
+            .then(function () {
+              ok();
+              if (S.formAccessKey) {                          // optional email copy via Web3Forms (free plan needs a browser request)
+                var copy = Object.assign({ access_key: S.formAccessKey, subject: subject, from_name: S.name || "Out of Africa" }, data);
+                if (copy.items_json) { try { copy.items = JSON.parse(copy.items_json).map(function (i) { return i.title + (i.artist ? " by " + i.artist : ""); }).join("; "); } catch (x) {} delete copy.items_json; }
+                try { fetch("https://api.web3forms.com/submit", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(copy), keepalive: true }).catch(function () {}); } catch (x) {}
+              }
+            })
             .catch(function (err) { setStatus(form, "err", esc(err.message && isNaN(err.message) ? err.message : "Sorry, that did not send. Please try again.")); })
             .then(function () { if (btn) { btn.disabled = false; btn.innerHTML = lbl; } });
           return;
