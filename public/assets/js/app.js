@@ -151,6 +151,35 @@
            WORKS.find(function (w) { return w.featured && !w.draft; }) || WORKS.find(function (w) { return w.featured; }) || WORKS[0];
   }
 
+
+  /* ---------------------------------------------------- hero wall */
+  var HERO_WALL = [
+    ["/media/2026-11/wall-painter-easel-a5kfvp.jpg", "Painting"], ["/media/2026-11/wall-woodcarver-fw5cs7.jpg", "Wood carving"],
+    ["/media/2026-11/wall-beads-rm9tm7.jpg", "Beadwork"], ["/media/2026-11/wall-potter-y64aan.jpg", "Ceramics"],
+    ["/media/2026-11/wall-textile-makers-rsc9zq.jpg", "Textiles"], ["/media/2026-11/wall-bronze-head-kwdffz.jpg", "Bronze"],
+    ["/media/2026-11/wall-basket-weaver-gfmvu4.jpg", "Weaving"], ["/media/2026-11/wall-mural-painter-whccmb.jpg", "Murals"],
+    ["/media/2026-11/wall-clay-pots-wu5tng.jpg", "Clay"], ["/media/2026-11/wall-wax-print-9cq2gc.jpg", "Wax print"],
+    ["/media/2026-11/wall-painter-canvas-6vyjhe.jpg", "Painting"], ["/media/2026-11/wall-potters-mother-child-ab497x.jpg", "Pottery"],
+    ["/media/2026-11/wall-woven-baskets-ww7ebp.jpg", "Basketry"], ["/media/2026-11/wall-wood-figure-kxubju.jpg", "Sculpture"]
+  ];
+  function buildHeroWall() {
+    var wall = $("[data-hero-wall]"); if (!wall) return;
+    var base = (S.heroWall && S.heroWall.length ? S.heroWall : HERO_WALL).map(function (x) { return { src: x[0], label: x[1] }; });
+    var works = WORKS.filter(function (w) { return w.images && w.images.length; }).slice(0, 10).map(function (w) {
+      var a = artist(w.artist) || {}; return { src: w.images[0], label: w.title, sub: [a.name, a.country].filter(Boolean).join(" · "), href: "artwork.html?id=" + encodeURIComponent(w.id) };
+    });
+    var mix = []; var i = 0, j = 0;
+    while (i < base.length || j < works.length) { if (i < base.length) mix.push(base[i++]); if (i < base.length) mix.push(base[i++]); if (j < works.length) mix.push(works[j++]); }
+    function tile(t) {
+      return '<figure class="hero-tile"><img src="' + esc(t.src) + '" alt="" loading="eager" decoding="async"><figcaption><span>' + esc(t.label) + "</span>" + (t.sub ? "<em>" + esc(t.sub) + "</em>" : "") + "</figcaption></figure>";
+    }
+    var cols = [[], [], []]; mix.forEach(function (t, k) { cols[k % 3].push(t); });
+    wall.innerHTML = cols.map(function (c, k) {
+      var set = c.map(tile).join("");
+      return '<div class="hero-col hero-col-' + (k + 1) + '"><div class="hero-track">' + set + set + "</div></div>";
+    }).join("");
+  }
+
   /* ---------------------------------------------------- layout */
   function initLayout() {
     var ann = $("[data-announcement]");
@@ -247,17 +276,8 @@
     $$("[data-tab]").forEach(function (b) { b.addEventListener("click", function () { renderGrid(b.getAttribute("data-tab")); }); });
     renderGrid("curated");
 
-    // hero badge + featured pill
-    var priced = WORKS.filter(function (w) { return hasPrice(w) && w.status !== "sold"; }).map(function (w) { return Number(w.price); });
-    var badge = $("[data-hero-badge]");
-    if (badge && priced.length) badge.innerHTML = '<span class="text-[10px] font-semibold uppercase tracking-[0.14em]">Works from</span><span class="font-display text-[26px] font-extrabold leading-none md:text-[30px]">' + short$(Math.min.apply(null, priced)) + "</span>";
-    var fw = featuredWork();
-    if (fw) {
-      var fa = artist(fw.artist) || {};
-      var pill = $("[data-hero-feature]"); pill.href = "artwork.html?id=" + encodeURIComponent(fw.id);
-      $("[data-hero-feature-label]").textContent = "Featured · " + (fa.name || "");
-      $("[data-hero-feature-title]").textContent = fw.title;
-    }
+    // hero: moving gallery wall of many artists, art forms and works
+    buildHeroWall();
 
     // categories
     $("[data-home-cats]").innerHTML = categories().map(function (c) {

@@ -72,26 +72,39 @@
 
 <main id="main" class="flex-1">
 
-<section class="relative overflow-hidden bg-walnut text-ivory">
-  <div class="absolute inset-0"><div class="relative h-full w-full " data-img="hero" data-dark></div></div>
-  <div class="absolute inset-0 bg-black/30"></div>
-  <div class="absolute inset-y-0 left-0 w-full bg-black/45 lg:w-[58%]"></div>
-  <div class="relative mx-auto flex min-h-[640px] w-full max-w-site flex-col justify-end px-5 pb-16 pt-24 md:px-8 lg:min-h-[780px] lg:pb-20">
-    <div><a href="for-artists.html#apply" class="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-white/90 underline decoration-white/40 underline-offset-[6px] hover:decoration-white">Open call · African artists, claim your space <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-3.5 w-3.5" aria-hidden="true"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></a></div>
-    <div class="mt-5 flex flex-wrap items-end gap-x-6 gap-y-4">
-      <h1 class="font-display text-[60px] leading-[0.88] md:text-[96px] lg:text-[124px]"><span class="font-light">Art that </span><span class="font-extrabold uppercase">carries</span><br><span class="font-extrabold uppercase">a </span><span class="font-accent font-normal italic">story.</span></h1>
-      <span data-hero-badge class="mb-3 flex h-24 w-24 shrink-0 flex-col items-center justify-center rounded-full bg-olive text-center text-white md:mb-5 md:h-28 md:w-28"><span class="text-[10px] font-semibold uppercase tracking-[0.14em]">Made</span><span class="font-display text-[26px] font-extrabold leading-none md:text-[30px]">by hand</span></span>
+<section class="hero relative overflow-hidden bg-walnut text-ivory" data-hero>
+  <div class="hero-grain" aria-hidden="true"></div>
+  <div class="hero-glow" aria-hidden="true"></div>
+  <!-- moving gallery wall: filled by app.js -->
+  <div class="hero-wall" data-hero-wall aria-hidden="true"></div>
+  <div class="hero-fade" aria-hidden="true"></div>
+  <div class="relative z-10 mx-auto grid w-full max-w-site px-5 md:px-8 lg:min-h-[calc(100svh-76px)] lg:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] lg:items-center">
+    <div class="pb-10 pt-14 md:pt-20 lg:py-24">
+      <a href="for-artists.html#apply" class="hero-in inline-flex items-center gap-3 rounded-full border border-white/15 bg-white/5 py-1.5 pl-1.5 pr-4 text-[11px] font-semibold uppercase tracking-[0.2em] text-white/90 backdrop-blur-sm transition-colors hover:border-white/40" style="--d:.15s"><span class="flex h-6 items-center rounded-full bg-olive px-2.5 text-[10px] tracking-[0.16em] text-white">Open call</span><span class="whitespace-nowrap"><span class="hidden sm:inline">African artists, </span>claim your space</span></a>
+      <h1 class="mt-7 font-display text-[58px] leading-[0.9] sm:text-[76px] md:text-[96px] xl:text-[118px]" data-split>
+        <span class="font-light">Art that </span><span class="font-extrabold uppercase">carries</span><br><span class="font-extrabold uppercase">a </span><span class="hero-story relative inline-block font-accent font-normal italic">story.<svg class="hero-stroke" viewBox="0 0 300 30" preserveAspectRatio="none" aria-hidden="true"><path d="M4 20 C 60 6, 120 26, 180 14 S 270 8, 296 18" /></svg></span>
+      </h1>
+      <p class="hero-in mt-8 max-w-[34rem] text-[17px] leading-relaxed text-white/80 md:text-[18px]" style="--d:1.05s">Original works by artists across Africa, every piece
+        <span class="hero-rotator" data-rotator><span>carved</span><span>painted</span><span>woven</span><span>beaded</span><span>sculpted</span><span>cast</span></span>
+        by hand and shipped to collectors worldwide.</p>
+      <div class="hero-in mt-9 flex flex-wrap gap-3" style="--d:1.2s">
+        <a href="explore.html" data-magnetic class="inline-flex h-[52px] items-center justify-center gap-2 whitespace-nowrap bg-ivory px-8 text-[12px] font-semibold uppercase tracking-[0.12em] text-walnut transition-colors duration-200 hover:bg-olive hover:text-white">Explore the Collection</a>
+        <a href="artists.html" data-magnetic class="inline-flex h-[52px] items-center justify-center gap-2 whitespace-nowrap border border-ivory/60 px-8 text-[12px] font-semibold uppercase tracking-[0.12em] text-ivory transition-colors duration-200 hover:bg-ivory hover:text-walnut">Meet the Artists</a>
+      </div>
+      <dl class="hero-in mt-12 grid max-w-lg grid-cols-3 gap-4 border-t border-white/15 pt-6" style="--d:1.35s">
+        <div><dt class="text-[11px] uppercase tracking-[0.16em] text-white/55">Made by</dt><dd class="mt-1 font-display text-[22px] font-semibold md:text-[26px]">Hand</dd></div>
+        <div><dt class="text-[11px] uppercase tracking-[0.16em] text-white/55">To the artist</dt><dd class="mt-1 font-display text-[22px] font-semibold md:text-[26px]"><span data-countup="75">75</span>%</dd></div>
+        <div><dt class="text-[11px] uppercase tracking-[0.16em] text-white/55">Shipping</dt><dd class="mt-1 font-display text-[22px] font-semibold md:text-[26px]">Worldwide</dd></div>
+      </dl>
     </div>
-    <p class="mt-7 max-w-md text-[16px] leading-relaxed text-white/85">Discover remarkable works created by African artists, each shaped by imagination, craftsmanship, and a story of its own.</p>
-    <div class="mt-9 flex flex-wrap gap-3">
-      <a href="explore.html" class="inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap px-7 text-[12px] font-semibold uppercase tracking-[0.12em] transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 bg-ivory text-walnut hover:bg-olive hover:text-white">Explore the Collection</a>
-      <a href="artists.html" class="inline-flex h-12 items-center justify-center gap-2 whitespace-nowrap px-7 text-[12px] font-semibold uppercase tracking-[0.12em] transition-colors duration-150 ease-out disabled:cursor-not-allowed disabled:opacity-50 border border-ivory/70 text-ivory hover:bg-ivory hover:text-walnut">Meet the Artists</a>
-    </div>
-    <a data-hero-feature href="explore.html" class="group absolute bottom-8 right-8 hidden items-center gap-4 rounded-full bg-ivory py-2 pl-6 pr-2 text-walnut md:flex">
-      <span class="text-left"><span data-hero-feature-label class="block text-[10px] font-semibold uppercase tracking-[0.16em] text-stone">Featured</span><span data-hero-feature-title class="block text-[14px] font-semibold">The collection</span></span>
-      <span class="flex h-11 w-11 items-center justify-center rounded-full bg-olive text-white transition-transform duration-200 ease-out group-hover:rotate-45"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="h-5 w-5" aria-hidden="true"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></span>
-    </a>
+    <div class="hidden lg:block"></div>
   </div>
+  <!-- rotating seal -->
+  <a href="explore.html" class="hero-seal" aria-label="Explore the collection">
+    <svg viewBox="0 0 120 120" aria-hidden="true"><defs><path id="sealPath" d="M60,60 m-46,0 a46,46 0 1,1 92,0 a46,46 0 1,1 -92,0"/></defs><text><textPath href="#sealPath">HANDMADE IN AFRICA · COLLECTED WORLDWIDE · </textPath></text></svg>
+    <span class="hero-seal-core"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h10v10"/><path d="M7 17 17 7"/></svg></span>
+  </a>
+  <div class="hero-scroll" aria-hidden="true"><span></span></div>
 </section>
 
 <section class="mx-auto w-full max-w-site px-5 md:px-8 py-20 md:py-28">
@@ -250,5 +263,6 @@
 <script src="assets/js/config.js"></script>
 <script src="assets/js/data.js"></script>
 <script src="assets/js/app.js"></script>
+<script src="assets/js/motion.js"></script>
 </body>
 </html>
