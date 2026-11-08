@@ -1,14 +1,15 @@
-# Used for local testing only. On Cloudflare, bindings are set in the
-# Pages project settings (D1 database "DB", KV namespace "MEDIA").
-name = "out-of-africa"
+# Cloudflare Pages configuration (read automatically on every deploy).
+# The dashboard password is NOT here: it is the ADMIN_PASSWORD secret
+# set in the Cloudflare dashboard.
+name = "out-of-africa-art"
 pages_build_output_dir = "public"
 compatibility_date = "2026-06-01"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "out-of-africa-db"
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "f09d8d00-4d54-4a7f-b04b-ca4835bde87e"
 
 [[kv_namespaces]]
 binding = "MEDIA"
-id = "00000000000000000000000000000000"
+id = "7aea6d35e07948bcb7f0622189048d24"
