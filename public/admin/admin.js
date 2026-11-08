@@ -7,9 +7,27 @@
   /* ---------------------------------------------------- state & helpers */
   var S = { artworks: [], artists: [], site: {}, inbox: [], orders: [], media: [], stats: null, loaded: {}, me: null };
   var SECTIONS = [["artworks", "Artworks", "Add, edit and price artworks"], ["artists", "Artists", "Artist profiles"], ["inbox", "Inbox", "Messages and applications (contains buyer contact details)"], ["orders", "Orders", "Order requests, quotes and payment links"], ["photos", "Photos", "Photo library uploads and deletes"], ["settings", "Settings", "Contact details, homepage, terms"]];
+  function isArtist() { return !!(S.me && S.me.perms && S.me.perms.role === "artist"); }
   function can(sec, level) {
     if (!S.me) return false; if (S.me.owner) return true;
+    if (isArtist()) {
+      if (sec === "artworks" || sec === "artists" || sec === "photos") return true;
+      if (sec === "orders") return level !== "edit" && !!S.me.perms.sales;
+      return false;
+    }
     var p = S.me.perms[sec]; return level === "edit" ? p === "edit" : !!p;
+  }
+  function canReview(kind) { return !!S.me && (S.me.owner || (!isArtist() && S.me.perms[kind] === "edit")); }
+  function pendingOf(x) { return x && x.review && !x.review.rejected; }
+  function reviewPill(x) {
+    if (!x || !x.review) return "";
+    return x.review.rejected ? '<span class="ml-1 inline-flex h-5 items-center bg-red-50 px-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-red-700">Not approved</span>'
+      : '<span class="ml-1 inline-flex h-5 items-center bg-olive/15 px-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-terracotta-deep">Waiting for approval</span>';
+  }
+  // Tell the owner by email (via Web3Forms, if set up) that something needs approval.
+  function notifyOwner(what) {
+    if (!S.site.formAccessKey || !S.me || S.me.owner) return;
+    try { fetch("https://api.web3forms.com/submit", { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify({ access_key: S.site.formAccessKey, subject: "Waiting for your approval · " + (S.site.name || "Out of Africa"), from_name: S.site.name || "Out of Africa", message: S.me.name + " sent " + what + " for approval. Review it here: " + location.origin + "/admin/" }) }).catch(function () {}); } catch (e) {}
   }
   function setMe(sess) { S.me = sess && sess.me ? sess.me : null; }
   var app = document.getElementById("app");
@@ -142,13 +160,19 @@
   function navAllowed(k) { return k === "overview" || (k === "team" ? !!(S.me && S.me.owner) : can(k, "view")); }
   var NAV = ALL_NAV, MOBILE_NAV = [];
   function buildNav() {
-    NAV = ALL_NAV.filter(function (n) { return navAllowed(n[0]); });
-    MOBILE_NAV = ["overview", "artworks", "inbox", "orders", "settings", "photos", "artists"].filter(navAllowed).slice(0, 5);
+    var ART = { artworks: "My works", artists: "My profile", orders: "My sales", photos: "My photos" };
+    NAV = ALL_NAV.filter(function (n) { return navAllowed(n[0]); }).map(function (n) { return isArtist() && ART[n[0]] ? [n[0], ART[n[0]], n[2]] : n; });
+    if (S.me && !S.me.owner) NAV = NAV.concat([["account", "My account", "settings"]]);
+    MOBILE_NAV = ["overview", "artworks", "inbox", "orders", "settings", "photos", "artists"].filter(navAllowed).slice(0, 4).concat(S.me && !S.me.owner ? ["account"] : []);
   }
 
   function shell(active, title, body, actions, back) {
     buildNav();
-    if (S.me && !S.me.owner && SECTIONS.some(function (x) { return x[0] === active; }) && !can(active, "edit"))
+    if (S.me && !S.me.owner && S.me.expires_at) {
+      var left = (new Date(S.me.expires_at) - Date.now()) / 864e5;
+      if (left < 3) body = '<div class="mb-5 border border-olive/40 bg-olive/10 px-4 py-3 text-[14px] text-walnut">Your access ends ' + (left < 1 ? "in " + Math.max(1, Math.round(left * 24)) + " hours" : "in " + Math.ceil(left) + " days") + ' (' + esc(new Date(S.me.expires_at).toLocaleString()) + '). Ask the owner if you need more time.</div>' + body;
+    }
+    if (S.me && !S.me.owner && !isArtist() && SECTIONS.some(function (x) { return x[0] === active; }) && !can(active, "edit"))
       body = '<div class="mb-5 border border-walnut/15 bg-sand px-4 py-3 text-[14px] text-walnut">View only. You can look around this section, but changes won\'t save.</div>' + body;
     var newCount = (S.inbox || []).filter(function (m) { return m.status === "new"; }).length;
     var openOrders = (S.orders || []).filter(function (o) { return o.status === "requested"; }).length;
@@ -158,7 +182,7 @@
       return '<a href="#' + n[0] + '" class="flex items-center gap-3 px-4 py-3 text-[14px] font-medium transition-colors ' + (on ? "bg-ivory/10 text-ivory" : "text-ivory/65 hover:bg-ivory/5 hover:text-ivory") + '">' + ic(n[2], "h-[18px] w-[18px]") + "<span>" + n[1] + "</span>" + badge(n[0]) + "</a>";
     }).join("");
     var bottom = MOBILE_NAV.map(function (k) {
-      var n = NAV.find(function (x) { return x[0] === k; }), on = k === active;
+      var n = NAV.find(function (x) { return x[0] === k; }) || [k, k, "home"], on = k === active;
       var b = k === "inbox" ? newCount : k === "orders" ? openOrders : 0;
       return '<a href="#' + k + '" class="relative flex flex-1 flex-col items-center gap-1 pb-1 pt-2.5 text-[10px] font-semibold uppercase tracking-[0.08em] ' + (on ? "text-walnut" : "text-stone") + '">' + ic(n[2], "h-[22px] w-[22px]") + "<span>" + n[1] + "</span>" + (b ? '<span class="absolute right-[22%] top-1.5 h-2 w-2 rounded-full bg-olive"></span>' : "") + "</a>";
     }).join("");
@@ -209,8 +233,9 @@
 
   /* ---------------------------------------------------- overview */
   function viewOverview() {
+    if (isArtist()) return viewArtistHome();
     loading("overview", "Overview");
-    Promise.all([load("stats", true), loadAll(["inbox", "orders", "site", "artworks"], true), api("/api/admin/session")]).then(function (r) {
+    Promise.all([load("stats", true), loadAll(["inbox", "orders", "site", "artworks", "artists"], true), api("/api/admin/session")]).then(function (r) {
       var st = r[0], sess = r[2];
       var newMsgs = S.inbox.filter(function (m) { return m.status === "new"; });
       var unpriced = S.artworks.filter(function (w) { return w.price == null && !w.draft && w.status !== "sold"; }).length;
@@ -223,8 +248,13 @@
         [!!S.site.formAccessKey, "Email alerts for new messages", "Optional: add a Web3Forms key in Settings to get every enquiry by email too."],
         [unpriced === 0, "Every artwork has a price", unpriced + " artwork" + (unpriced === 1 ? " shows" : "s show") + " “Price on request”."]
       ];
+      var waiting = S.artworks.filter(pendingOf).map(function (w) { return ["#artwork/" + encodeURIComponent(w.id), w.review.isNew ? "New work: " + w.title : "Changes to " + w.title, w.review]; })
+        .concat(S.artists.filter(pendingOf).map(function (a) { return ["#artist/" + encodeURIComponent(a.id), "Profile changes: " + a.name, a.review]; }));
+      var approvals = !waiting.length || !(canReview("artworks") || canReview("artists")) ? "" :
+        '<section class="mt-6 border border-olive/40 bg-olive/10"><div class="flex items-center justify-between px-5 py-4"><h2 class="font-display text-[20px] text-walnut">Waiting for your approval</h2><span class="inline-flex h-6 min-w-[24px] items-center justify-center rounded-full bg-olive px-2 text-[12px] font-semibold text-white">' + waiting.length + '</span></div><ul class="divide-y divide-walnut/10 border-t border-walnut/10 bg-ivory">' +
+        waiting.map(function (x) { return '<li><a href="' + x[0] + '" class="flex items-center gap-3 px-5 py-3.5 hover:bg-paper"><span class="min-w-0 flex-1"><span class="block truncate text-[15px] font-medium text-walnut">' + esc(x[1]) + '</span><span class="block text-[13px] text-stone">From ' + esc(x[2].by) + " · " + esc(ago(x[2].at)) + '</span></span><span class="text-[13px] font-semibold text-walnut underline underline-offset-4">Review</span></a></li>'; }).join("") + "</ul></section>";
       var body =
-        '<p class="text-[15px] text-stone">' + hello + '. Here is what is happening on the site.</p>' +
+        '<p class="text-[15px] text-stone">' + hello + '. Here is what is happening on the site.</p>' + approvals +
         '<div class="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">' +
           stat(newMsgs.length, "New messages", "#inbox", newMsgs.length > 0) + stat((st.orders.requested || 0), "Orders to quote", "#orders", (st.orders.requested || 0) > 0) +
           stat(st.artworks.available, "Works available", "#artworks") + stat(st.artworks.sold, "Works sold", "#artworks") +
@@ -252,22 +282,22 @@
     loading("artworks", "Artworks");
     loadAll(["artworks", "artists", "inbox", "orders"]).then(function () {
       var state = { q: "", status: "all" };
-      shell("artworks", "Artworks", '<div class="flex flex-col gap-3 sm:flex-row"><input id="aw-q" type="search" class="' + INP + ' sm:flex-1" placeholder="Search artworks"><select id="aw-st" class="' + INP + ' sm:w-48"><option value="all">All works</option><option value="available">Available</option><option value="sold">Sold</option><option value="reserved">Reserved</option><option value="commission">Made to order</option><option value="draft">Hidden drafts</option></select></div><p id="aw-count" class="mt-4 text-[13px] text-stone"></p><ul id="aw-list" class="mt-3 divide-y divide-walnut/10 border border-walnut/10 bg-ivory"></ul><p class="mt-4 text-[13px] text-stone">Tip: use the arrows to set the order works appear in on the site. Starred works show first on the homepage.</p>',
+      shell("artworks", isArtist() ? "My works" : "Artworks", '<div class="flex flex-col gap-3 sm:flex-row"><input id="aw-q" type="search" class="' + INP + ' sm:flex-1" placeholder="Search artworks"><select id="aw-st" class="' + INP + ' sm:w-48"><option value="all">All works</option><option value="available">Available</option><option value="sold">Sold</option><option value="reserved">Reserved</option><option value="commission">Made to order</option><option value="draft">Hidden drafts</option><option value="review">Waiting for approval</option></select></div><p id="aw-count" class="mt-4 text-[13px] text-stone"></p><ul id="aw-list" class="mt-3 divide-y divide-walnut/10 border border-walnut/10 bg-ivory"></ul>' + (isArtist() ? "" : '<p class="mt-4 text-[13px] text-stone">Tip: use the arrows to set the order works appear in on the site. Starred works show first on the homepage.</p>'),
         '<a href="#artwork/new" class="' + B_DARK + ' h-10 px-4">' + ic("plus", "h-4 w-4") + '<span class="hidden sm:inline">Add artwork</span></a>');
       function render() {
         var list = S.artworks.filter(function (w) {
-          if (state.status === "draft") { if (!w.draft) return false; } else if (state.status !== "all" && w.status !== state.status) return false;
+          if (state.status === "review") { if (!w.review) return false; } else if (state.status === "draft") { if (!w.draft) return false; } else if (state.status !== "all" && w.status !== state.status) return false;
           return !state.q || (w.title + " " + artistName(w.artist) + " " + (w.category || "")).toLowerCase().indexOf(state.q) > -1;
         });
         $("#aw-count").textContent = list.length + " of " + S.artworks.length + " artworks";
         $("#aw-list").innerHTML = list.map(function (w) {
           return '<li class="flex items-center gap-3 p-3 md:gap-4 md:p-4" data-id="' + esc(w.id) + '">' +
             '<a href="#artwork/' + encodeURIComponent(w.id) + '" class="h-16 w-14 shrink-0 overflow-hidden bg-sand md:h-20 md:w-16">' + thumb(w.images && w.images[0]) + "</a>" +
-            '<a href="#artwork/' + encodeURIComponent(w.id) + '" class="min-w-0 flex-1"><p class="truncate text-[15px] font-medium text-walnut">' + esc(w.title) + (w.draft ? ' <span class="ml-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-stone">Hidden</span>' : "") + '</p><p class="truncate text-[13px] text-stone">' + esc(artistName(w.artist)) + " · " + esc(money(w.price)) + "</p></a>" +
-            '<select data-quick-status class="hidden h-9 border border-walnut/15 bg-ivory px-2 text-[13px] text-walnut sm:block">' + ["available", "reserved", "sold", "commission"].map(function (s) { return '<option value="' + s + '"' + (w.status === s ? " selected" : "") + ">" + STATUS_LABEL[s] + "</option>"; }).join("") + "</select>" +
-            '<span class="sm:hidden">' + pill(w.status) + "</span>" +
+            '<a href="#artwork/' + encodeURIComponent(w.id) + '" class="min-w-0 flex-1"><p class="truncate text-[15px] font-medium text-walnut">' + esc(w.title) + (w.draft ? ' <span class="ml-1 text-[11px] font-semibold uppercase tracking-[0.1em] text-stone">Hidden</span>' : "") + reviewPill(w) + '</p><p class="truncate text-[13px] text-stone">' + esc(artistName(w.artist)) + " · " + esc(money(w.price)) + "</p></a>" +
+            (isArtist() ? '<span class="hidden sm:inline">' + pill(w.status) + "</span>" : '<select data-quick-status class="hidden h-9 border border-walnut/15 bg-ivory px-2 text-[13px] text-walnut sm:block">' + ["available", "reserved", "sold", "commission"].map(function (s) { return '<option value="' + s + '"' + (w.status === s ? " selected" : "") + ">" + STATUS_LABEL[s] + "</option>"; }).join("") + "</select>") +
+            '<span class="sm:hidden">' + pill(w.status) + "</span>" + (isArtist() ? "" :
             '<button type="button" data-star class="flex h-9 w-9 items-center justify-center ' + (w.featured ? "text-olive" : "text-walnut/25 hover:text-walnut/60") + '" aria-label="Feature on homepage">' + ic("star", "h-5 w-5" + (w.featured ? " fill-current" : "")) + "</button>" +
-            '<div class="hidden flex-col md:flex"><button type="button" data-move="-1" class="flex h-6 w-8 items-center justify-center text-stone hover:text-walnut" aria-label="Move up">' + ic("up", "h-4 w-4") + '</button><button type="button" data-move="1" class="flex h-6 w-8 items-center justify-center text-stone hover:text-walnut" aria-label="Move down">' + ic("down", "h-4 w-4") + "</button></div>" +
+            '<div class="hidden flex-col md:flex"><button type="button" data-move="-1" class="flex h-6 w-8 items-center justify-center text-stone hover:text-walnut" aria-label="Move up">' + ic("up", "h-4 w-4") + '</button><button type="button" data-move="1" class="flex h-6 w-8 items-center justify-center text-stone hover:text-walnut" aria-label="Move down">' + ic("down", "h-4 w-4") + "</button></div>") +
           "</li>";
         }).join("") || '<li class="p-10 text-center text-[15px] text-stone">No artworks match.</li>';
       }
@@ -355,15 +385,22 @@
     loading("artworks", "Artwork");
     loadAll(["artworks", "artists", "inbox", "orders"]).then(function () {
       var isNew = id === "new";
-      var w = isNew ? { title: "", artist: (S.artists[0] || {}).id, status: "available", images: [], price: null } : S.artworks.find(function (x) { return x.id === id; });
-      if (!w) { shell("artworks", "Not found", '<p class="text-stone">This artwork no longer exists.</p>', "", "#artworks"); return; }
+      var live = isNew ? { title: "", artist: (S.artists[0] || {}).id, status: "available", images: [], price: null } : S.artworks.find(function (x) { return x.id === id; });
+      if (!live) { shell("artworks", "Not found", '<p class="text-stone">This artwork no longer exists.</p>', "", "#artworks"); return; }
+      var ART = isArtist(), P = (S.me && S.me.perms) || {};
+      var w = ART && live.review && live.review.changes && !live.review.rejected ? Object.assign({}, live, live.review.changes, { id: live.id, review: live.review }) : live;
+      if (ART && !S.artists.length) { shell("artworks", "New artwork", '<p class="text-stone">Your login isn\'t linked to an artist profile yet. Ask the owner to link it.</p>', "", "#artworks"); return; }
       var images = (w.images || []).slice();
       var pm = photoManager(images);
       var cats = S.artworks.map(function (x) { return x.category; }).filter(function (c, i, a) { return c && a.indexOf(c) === i; });
       var statusSeg = ["available", "reserved", "sold", "commission"].map(function (s) {
         return '<label class="flex-1"><input type="radio" name="status" value="' + s + '" class="peer sr-only"' + (w.status === s ? " checked" : "") + '><span class="flex h-11 cursor-pointer items-center justify-center border border-walnut/20 bg-ivory px-2 text-center text-[12px] font-semibold uppercase tracking-[0.08em] text-stone peer-checked:border-walnut peer-checked:bg-walnut peer-checked:text-ivory">' + STATUS_LABEL[s] + "</span></label>";
       }).join("");
-      var body =
+      var note = "";
+      if (ART && w.review) note = w.review.rejected ? '<div class="mb-6 border border-red-200 bg-red-50 p-4 text-[14px] text-walnut"><strong>Not approved.</strong> ' + (w.review.note ? "Note from the owner: “" + esc(w.review.note) + "”. " : "") + "Make changes and send it again.</div>"
+        : '<div class="mb-6 border border-olive/40 bg-olive/10 p-4 text-[14px] text-walnut"><strong>Waiting for approval.</strong> ' + (w.review.isNew ? "This work stays hidden until the owner approves it." : "You're seeing your proposed version. The current version stays on the site until it's approved.") + " You can keep editing.</div>";
+      else if (ART && !P.publish) note = '<div class="mb-6 border border-walnut/15 bg-paper p-4 text-[14px] text-stone">When you save, your changes are sent to the owner for approval before they go live.</div>';
+      var body = reviewPanel("artworks", live) + note +
         '<form id="aw-form" class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">' +
           '<div class="grid content-start gap-5">' +
             '<section class="' + CARD + ' grid gap-5 p-5"><h2 class="font-display text-[20px] text-walnut">Photos</h2>' + pm.html() + '<p class="text-[13px] text-stone">The first photo is the main image. Photos are resized automatically before upload. For a studio finish, send raw photos to Claude to edit first.</p></section>' +
@@ -383,28 +420,32 @@
           "</div>" +
           '<div class="grid content-start gap-5">' +
             '<section class="' + CARD + ' grid gap-5 p-5 lg:sticky lg:top-24"><h2 class="font-display text-[20px] text-walnut">Price &amp; status</h2>' +
-              field("Price (" + esc(S.site.currency || "USD") + ")", input("price", w.price == null ? "" : w.price, 'type="number" min="0" step="1" inputmode="decimal" placeholder="Leave empty for Price on request"')) +
+              field("Price (" + esc(S.site.currency || "USD") + ")", input("price", w.price == null ? "" : w.price, 'type="number" min="0" step="1" inputmode="decimal" placeholder="' + (ART && !P.prices ? "Set by the owner" : "Leave empty for Price on request") + '"' + (ART && !P.prices ? " disabled" : "")), ART && !P.prices ? "The owner sets prices for the marketplace." : "") +
               '<div><span class="' + LBL + '">Status</span><div class="grid grid-cols-2 gap-2">' + statusSeg + "</div></div>" +
-              toggle("featured", !!w.featured, "Feature on homepage", "Shows first in the collection and homepage.") +
+              (ART ? "" : toggle("featured", !!w.featured, "Feature on homepage", "Shows first in the collection and homepage.")) +
               toggle("draft", !!w.draft, "Hide from website", "Keep it private while you finish the details.") +
-              '<div class="grid gap-2 pt-2"><button type="submit" class="' + B_DARK + ' h-12">' + (isNew ? "Publish artwork" : "Save changes") + "</button>" +
+              '<div class="grid gap-2 pt-2"><button type="submit" class="' + B_DARK + ' h-12">' + (ART && !P.publish ? "Send for approval" : isNew ? "Publish artwork" : "Save changes") + "</button>" +
               (isNew ? "" : '<a href="/artwork?id=' + encodeURIComponent(w.id) + '" target="_blank" rel="noopener" class="' + B_OUT + '">' + ic("ext", "h-4 w-4") + "View on site</a>") + "</div>" +
-              (isNew ? "" : '<button type="button" id="aw-del" class="justify-self-start text-[13px] font-medium text-red-700 underline underline-offset-4">Delete artwork</button>') +
+              (isNew || ART ? "" : '<button type="button" id="aw-del" class="justify-self-start text-[13px] font-medium text-red-700 underline underline-offset-4">Delete artwork</button>') +
             "</section>" +
           "</div>" +
         "</form>";
       shell("artworks", isNew ? "New artwork" : esc(w.title), body, "", "#artworks");
       pm.bind();
+      bindReview("artworks", live, function () { viewArtwork(live.id); });
       $("#aw-form").addEventListener("submit", function (e) {
         e.preventDefault();
         var d = formData(e.target);
         d.status = (e.target.querySelector('input[name="status"]:checked') || {}).value || "available";
         if (!d.title.trim()) { toast("Please add a title", "err"); return; }
-        var out = Object.assign({}, w, d, { images: images, price: d.price === "" ? null : Number(d.price) });
+        var out = Object.assign({}, w, d, { images: images, price: d.price === "" || d.price === undefined ? (ART && !P.prices ? live.price : null) : Number(d.price) });
+        delete out.review;
         if (isNew) delete out.id;
         var b = e.target.querySelector('button[type="submit"]'); b.disabled = true;
         api("/api/admin/artworks", { method: "POST", body: out }).then(function (r) {
-          S.loaded.artworks = false; toast(isNew ? "Artwork published" : "Saved");
+          S.loaded.artworks = false;
+          if (r.pending) { toast("Sent for approval"); notifyOwner((isNew ? "a new work, “" : "changes to “") + out.title + "”"); if (isNew) { location.hash = "#artwork/" + encodeURIComponent(r.item.id); } else { viewArtwork(live.id); } return; }
+          toast(isNew ? "Artwork published" : "Saved");
           if (isNew) location.hash = "#artwork/" + encodeURIComponent(r.item.id); else { b.disabled = false; Object.assign(w, r.item); }
         }).catch(function (err) { b.disabled = false; fail(err); });
       });
@@ -420,11 +461,12 @@
   function viewArtists() {
     loading("artists", "Artists");
     loadAll(["artists", "artworks", "inbox", "orders"]).then(function () {
+      if (isArtist() && S.artists.length === 1) { location.replace("#artist/" + encodeURIComponent(S.artists[0].id)); return; }
       var body = '<ul class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">' + S.artists.map(function (a) {
         var n = S.artworks.filter(function (w) { return w.artist === a.id; }).length;
-        return '<li><a href="#artist/' + encodeURIComponent(a.id) + '" class="' + CARD + ' flex gap-4 p-4 hover:border-walnut/30"><span class="h-20 w-16 shrink-0 overflow-hidden bg-sand">' + thumb(a.portrait) + '</span><span class="min-w-0"><span class="block truncate font-display text-[20px] text-walnut">' + esc(a.name) + '</span><span class="block text-[13px] text-stone">' + esc((a.disciplines || []).join(", ")) + (a.country ? " · " + esc(a.country) : "") + '</span><span class="mt-2 block text-[13px] font-medium text-walnut">' + n + " work" + (n === 1 ? "" : "s") + "</span></span></a></li>";
-      }).join("") + '<li><a href="#artist/new" class="flex h-full min-h-[112px] items-center justify-center gap-2 border border-dashed border-walnut/30 bg-ivory p-4 text-[14px] font-medium text-walnut hover:border-walnut">' + ic("plus", "h-4 w-4") + "Add an artist</a></li></ul>";
-      shell("artists", "Artists", body, '<a href="#artist/new" class="' + B_DARK + ' h-10 px-4">' + ic("plus", "h-4 w-4") + '<span class="hidden sm:inline">Add artist</span></a>');
+        return '<li><a href="#artist/' + encodeURIComponent(a.id) + '" class="' + CARD + ' flex gap-4 p-4 hover:border-walnut/30"><span class="h-20 w-16 shrink-0 overflow-hidden bg-sand">' + thumb(a.portrait) + '</span><span class="min-w-0"><span class="block truncate font-display text-[20px] text-walnut">' + esc(a.name) + "</span>" + reviewPill(a) + '<span class="hidden"></span><span class="block text-[13px] text-stone">' + esc((a.disciplines || []).join(", ")) + (a.country ? " · " + esc(a.country) : "") + '</span><span class="mt-2 block text-[13px] font-medium text-walnut">' + n + " work" + (n === 1 ? "" : "s") + "</span></span></a></li>";
+      }).join("") + (isArtist() ? "</ul>" : '<li><a href="#artist/new" class="flex h-full min-h-[112px] items-center justify-center gap-2 border border-dashed border-walnut/30 bg-ivory p-4 text-[14px] font-medium text-walnut hover:border-walnut">' + ic("plus", "h-4 w-4") + "Add an artist</a></li></ul>");
+      shell("artists", isArtist() ? "My profile" : "Artists", body, isArtist() ? "" : '<a href="#artist/new" class="' + B_DARK + ' h-10 px-4">' + ic("plus", "h-4 w-4") + '<span class="hidden sm:inline">Add artist</span></a>');
     }).catch(fail);
   }
 
@@ -432,11 +474,18 @@
     loading("artists", "Artist");
     loadAll(["artists", "artworks", "inbox", "orders"]).then(function () {
       var isNew = id === "new";
-      var a = isNew ? { name: "", disciplines: [], highlights: [], bio: [], acceptsCommissions: true } : S.artists.find(function (x) { return x.id === id; });
-      if (!a) { shell("artists", "Not found", '<p class="text-stone">This artist no longer exists.</p>', "", "#artists"); return; }
+      var ART = isArtist(), P = (S.me && S.me.perms) || {};
+      if (ART && isNew) { location.replace("#artists"); return; }
+      var live = isNew ? { name: "", disciplines: [], highlights: [], bio: [], acceptsCommissions: true } : S.artists.find(function (x) { return x.id === id; });
+      if (!live) { shell("artists", "Not found", '<p class="text-stone">This artist no longer exists.</p>', "", "#artists"); return; }
+      var a = ART && live.review && live.review.changes && !live.review.rejected ? Object.assign({}, live, live.review.changes, { id: live.id, review: live.review }) : live;
       var portrait = a.portrait ? [a.portrait] : [];
       var pm = photoManager(portrait, null, true);
-      var body =
+      var note = "";
+      if (ART && a.review) note = a.review.rejected ? '<div class="mb-6 border border-red-200 bg-red-50 p-4 text-[14px] text-walnut"><strong>Profile changes not approved.</strong> ' + (a.review.note ? "Note: “" + esc(a.review.note) + "”. " : "") + "Edit and send again.</div>"
+        : '<div class="mb-6 border border-olive/40 bg-olive/10 p-4 text-[14px] text-walnut"><strong>Waiting for approval.</strong> You\'re seeing your proposed version. Your current profile stays live until it\'s approved.</div>';
+      else if (ART && !P.publish) note = '<div class="mb-6 border border-walnut/15 bg-paper p-4 text-[14px] text-stone">Profile changes are sent to the owner for approval before they go live.</div>';
+      var body = reviewPanel("artists", live) + note +
         '<form id="ar-form" class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">' +
           '<div class="grid content-start gap-5"><section class="' + CARD + ' grid gap-5 p-5"><h2 class="font-display text-[20px] text-walnut">Profile</h2>' +
             field("Full name", input("name", a.name, "required")) +
@@ -450,14 +499,15 @@
           "</section></div>" +
           '<div class="grid content-start gap-5"><section class="' + CARD + ' grid gap-5 p-5 lg:sticky lg:top-24"><h2 class="font-display text-[20px] text-walnut">Portrait</h2>' + pm.html() +
             toggle("acceptsCommissions", !!a.acceptsCommissions, "Accepts commissions", "Shows the Commission button on their profile.") +
-            toggle("featured", !!a.featured, "Featured artist", "Shown in the homepage feature section.") +
-            '<div class="grid gap-2 pt-2"><button type="submit" class="' + B_DARK + ' h-12">' + (isNew ? "Add artist" : "Save changes") + "</button>" +
+            (ART ? "" : toggle("featured", !!a.featured, "Featured artist", "Shown in the homepage feature section.")) +
+            '<div class="grid gap-2 pt-2"><button type="submit" class="' + B_DARK + ' h-12">' + (ART && !P.publish ? "Send for approval" : isNew ? "Add artist" : "Save changes") + "</button>" +
             (isNew ? "" : '<a href="/artist?id=' + encodeURIComponent(a.id) + '" target="_blank" rel="noopener" class="' + B_OUT + '">' + ic("ext", "h-4 w-4") + "View profile</a>") + "</div>" +
-            (isNew ? "" : '<button type="button" id="ar-del" class="justify-self-start text-[13px] font-medium text-red-700 underline underline-offset-4">Delete artist</button>') +
+            (isNew || ART ? "" : '<button type="button" id="ar-del" class="justify-self-start text-[13px] font-medium text-red-700 underline underline-offset-4">Delete artist</button>') +
           "</section></div>" +
         "</form>";
-      shell("artists", isNew ? "New artist" : esc(a.name), body, "", "#artists");
+      shell("artists", isNew ? "New artist" : esc(a.name), body, "", ART ? "#overview" : "#artists");
       pm.bind();
+      bindReview("artists", live, function () { viewArtist(live.id); });
       $("#ar-form").addEventListener("submit", function (e) {
         e.preventDefault();
         var d = formData(e.target);
@@ -467,9 +517,12 @@
           highlights: d.highlights.split("\n").map(function (s) { return s.trim(); }).filter(Boolean),
           bio: d.bio.split(/\n\s*\n/).map(function (s) { return s.trim(); }).filter(Boolean)
         });
+        delete out.review;
         if (isNew) delete out.id;
         api("/api/admin/artists", { method: "POST", body: out }).then(function (r) {
-          S.loaded.artists = false; toast(isNew ? "Artist added" : "Saved");
+          S.loaded.artists = false;
+          if (r.pending) { toast("Sent for approval"); notifyOwner("profile changes for " + out.name); viewArtist(live.id); return; }
+          toast(isNew ? "Artist added" : "Saved");
           if (isNew) location.hash = "#artist/" + encodeURIComponent(r.item.id); else Object.assign(a, r.item);
         }).catch(fail);
       });
@@ -758,6 +811,94 @@
   }
 
 
+
+  /* ---------------------------------------------------- artist home */
+  function viewArtistHome() {
+    loading("overview", "My studio");
+    Promise.all([load("stats", true), loadAll(["artworks", "artists", "site", "orders"], true)]).then(function (r) {
+      var st = r[0].artworks, p = S.me.perms, first = S.artists[0];
+      var declined = S.artworks.filter(function (w) { return w.review && w.review.rejected; }).concat(S.artists.filter(function (a) { return a.review && a.review.rejected; }));
+      function stat(n, label, href, accent) { return '<a href="' + href + '" class="' + CARD + ' block p-5 hover:border-walnut/30"><p class="font-display text-[40px] font-extrabold leading-none ' + (accent ? "text-olive" : "text-walnut") + '">' + n + '</p><p class="mt-2 text-[12px] font-semibold uppercase tracking-[0.14em] text-stone">' + label + "</p></a>"; }
+      var body =
+        '<p class="text-[15px] text-stone">Welcome' + (first ? ", " + esc(first.name.split(" ")[0]) : "") + '. This is your private studio. Only your own works and profile appear here.</p>' +
+        (!p.artists.length ? '<div class="mt-5 border border-walnut/15 bg-sand px-4 py-3 text-[14px] text-walnut">Your login isn\'t linked to an artist profile yet. Ask the owner to link it.</div>' : "") +
+        '<div class="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">' + stat(st.total, "My works", "#artworks") + stat(st.available, "Live on the site", "#artworks") + stat(st.sold, "Sold", p.sales ? "#orders" : "#artworks") + stat(st.pending, "Waiting approval", "#artworks", st.pending > 0) + "</div>" +
+        (declined.length ? '<section class="mt-6 border border-red-200 bg-red-50 p-5"><h2 class="font-display text-[20px] text-walnut">Not approved yet</h2><ul class="mt-2 grid gap-2 text-[14px]">' + declined.map(function (x) { return '<li><a class="font-medium text-walnut underline underline-offset-4" href="#' + (x.title !== undefined ? "artwork/" : "artist/") + encodeURIComponent(x.id) + '">' + esc(x.title || x.name) + "</a>" + (x.review.note ? '<span class="text-stone">: “' + esc(x.review.note) + '”</span>' : "") + "</li>"; }).join("") + "</ul></section>" : "") +
+        '<div class="mt-6 grid gap-3 sm:grid-cols-3"><a href="#artwork/new" class="' + B_DARK + ' h-14">' + ic("plus", "h-4 w-4") + 'Add a new work</a>' + (first ? '<a href="#artist/' + encodeURIComponent(first.id) + '" class="' + B_OUT + ' h-14">Edit my profile</a><a href="/artist?id=' + encodeURIComponent(first.id) + '" target="_blank" rel="noopener" class="' + B_OUT + ' h-14">' + ic("ext", "h-4 w-4") + "See my public page</a>" : "") + "</div>" +
+        '<section class="mt-6 ' + CARD + ' p-5"><h2 class="font-display text-[20px] text-walnut">How it works</h2><ul class="mt-3 grid gap-2 text-[14px] leading-relaxed text-stone">' +
+          "<li>" + (p.publish ? "Your changes go live as soon as you save." : "When you add or change something, it's sent to the owner first. It goes live once approved, and the current version stays on the site until then.") + "</li>" +
+          "<li>" + (p.prices ? "You can set and change your prices." : "Prices are set by the owner. Leave the price to them.") + "</li>" +
+          "<li>" + (p.sales ? "My sales shows orders for your works. Buyer contact details stay private with the marketplace." : "Sales are handled by the marketplace team.") + "</li>" +
+        "</ul></section>";
+      shell("overview", "My studio", body);
+    }).catch(fail);
+  }
+
+  /* ---------------------------------------------------- artist sales (no buyer details) */
+  function viewMySales() {
+    loading("orders", "My sales");
+    loadAll(["orders", "site"], true).then(function () {
+      var rows = S.orders.map(function (o) {
+        var total = o.sale.items.reduce(function (t, i) { return t + (Number(i.price) || 0); }, 0);
+        return '<li class="flex items-start gap-4 p-4"><div class="min-w-0 flex-1"><p class="text-[15px] font-medium text-walnut">' + o.sale.items.map(function (i) { return esc(i.title); }).join(", ") + '</p><p class="text-[13px] text-stone">' + esc(new Date(o.created_at).toLocaleDateString()) + (o.sale.country ? " · to " + esc(o.sale.country) : "") + " · " + esc(o.id) + "</p></div>" + '<div class="text-right"><p class="text-[14px] font-medium text-walnut">' + (total ? esc(money(total, o.sale.currency)) : "Price to confirm") + "</p>" + pill(o.status) + "</div></li>";
+      }).join("");
+      shell("orders", "My sales", '<p class="text-[14px] text-stone">Orders that include your works. The marketplace handles buyers, payment and delivery, so contact details are kept private.</p>' + (rows ? '<ul class="mt-4 divide-y divide-walnut/10 border border-walnut/10 bg-ivory">' + rows + "</ul>" : '<div class="mt-4 ' + CARD + ' p-10 text-center text-[15px] text-stone">No orders yet. When someone orders one of your works, it shows here.</div>'));
+    }).catch(fail);
+  }
+
+  /* ---------------------------------------------------- my account (team members) */
+  function viewAccount() {
+    if (S.me.owner) { shell("", "My account", '<div class="' + CARD + ' p-6 text-[15px] text-walnut">You are the owner. Your password is stored in Cloudflare (ADMIN_PASSWORD) and can only be changed there.</div>'); return; }
+    var p = S.me.perms;
+    var access = isArtist() ? "Artist login" + (p.publish ? ", publishes directly" : ", changes need approval") + (p.prices ? ", sets prices" : "") + (p.sales ? ", sees own sales" : "")
+      : SECTIONS.filter(function (x) { return p[x[0]]; }).map(function (x) { return x[1] + (p[x[0]] === "view" ? " (view)" : ""); }).join(", ");
+    shell("account", "My account",
+      '<div class="grid gap-5"><section class="' + CARD + ' p-5"><h2 class="font-display text-[20px] text-walnut">' + esc(S.me.name) + '</h2><p class="mt-1 text-[14px] text-stone">Access: ' + esc(access || "None") + "</p>" + (S.me.expires_at ? '<p class="text-[14px] text-stone">Ends: ' + esc(new Date(S.me.expires_at).toLocaleString()) + "</p>" : "") + "</section>" +
+      '<form id="acc-form" class="' + CARD + ' grid gap-5 p-5"><h2 class="font-display text-[20px] text-walnut">Change my password</h2>' + field("Current password", '<input name="current" type="password" autocomplete="current-password" required class="' + INP + '">') + field("New password", '<input name="password" type="password" autocomplete="new-password" minlength="8" required class="' + INP + '">', "At least 8 characters.") + '<button class="' + B_DARK + '">Update password</button></form>' +
+      '<button type="button" data-logout class="' + B_OUT + '">' + ic("logout", "h-4 w-4") + "Sign out</button></div>");
+    $$("[data-logout]").forEach(function (b) { b.addEventListener("click", logout); });
+    $("#acc-form").addEventListener("submit", function (e) { e.preventDefault(); var d = formData(e.target); api("/api/admin/account", { method: "POST", body: d }).then(function () { e.target.reset(); toast("Password updated"); }).catch(fail); });
+  }
+
+  /* ---------------------------------------------------- review panel */
+  var REVIEW_FIELDS = {
+    artworks: [["images", "Photos"], ["title", "Title"], ["artist", "Artist"], ["category", "Art form"], ["medium", "Medium"], ["dimensions", "Dimensions"], ["weight", "Weight"], ["year", "Year"], ["price", "Price"], ["status", "Status"], ["draft", "Hidden"], ["description", "Description"], ["story", "Story"], ["provenance", "Provenance"], ["alt", "Image description"]],
+    artists: [["portrait", "Portrait"], ["name", "Name"], ["country", "Country"], ["city", "City"], ["disciplines", "Art forms"], ["short", "Introduction"], ["highlights", "Highlights"], ["bio", "Biography"], ["approach", "Approach"], ["acceptsCommissions", "Accepts commissions"], ["instagram", "Instagram"], ["facebook", "Facebook"]]
+  };
+  function showVal(k, v) {
+    if (k === "images" || k === "portrait") { var a = [].concat(v || []); return a.length ? '<span class="flex flex-wrap gap-1">' + a.map(function (u) { return '<span class="inline-block h-14 w-11 overflow-hidden bg-sand">' + thumb(u) + "</span>"; }).join("") + "</span>" : '<em class="text-stone">None</em>'; }
+    if (k === "artist") return esc(artistName(v) || v);
+    if (k === "price") return esc(money(v));
+    if (k === "status") return esc(STATUS_LABEL[v] || v);
+    if (typeof v === "boolean") return v ? "Yes" : "No";
+    if (Array.isArray(v)) v = v.join(k === "bio" ? "\n\n" : ", ");
+    return v === "" || v == null ? '<em class="text-stone">Empty</em>' : '<span class="whitespace-pre-line">' + esc(v) + "</span>";
+  }
+  function normV(v) { return v == null || v === false || v === "" || (Array.isArray(v) && !v.length) ? "" : v; }
+  function reviewPanel(kind, item, done) {
+    if (!pendingOf(item) || !canReview(kind)) return "";
+    var r = item.review, rows = "";
+    if (!r.isNew) {
+      rows = REVIEW_FIELDS[kind].filter(function (f) { return JSON.stringify(normV(item[f[0]])) !== JSON.stringify(normV(r.changes[f[0]])); }).map(function (f) {
+        return '<div class="grid gap-2 border-t border-walnut/10 py-3 sm:grid-cols-[130px_1fr_1fr]"><span class="text-[13px] font-semibold text-walnut">' + f[1] + '</span><div class="text-[14px] text-stone"><span class="mb-1 block text-[11px] font-semibold uppercase tracking-[0.1em]">Now</span>' + showVal(f[0], item[f[0]]) + '</div><div class="text-[14px] text-walnut"><span class="mb-1 block text-[11px] font-semibold uppercase tracking-[0.1em] text-olive">Proposed</span>' + showVal(f[0], r.changes[f[0]]) + "</div></div>";
+      }).join("") || '<p class="border-t border-walnut/10 py-3 text-[14px] text-stone">No visible differences.</p>';
+    }
+    return '<section id="rv" class="mb-6 border border-olive/50 bg-olive/10 p-5"><h2 class="font-display text-[20px] text-walnut">' + (r.isNew ? "New work waiting for approval" : "Changes waiting for approval") + '</h2><p class="mt-1 text-[14px] text-stone">Sent by ' + esc(r.by) + " " + esc(ago(r.at)) + ". " + (r.isNew ? "It stays hidden until you approve it. You can edit details below first." : "The live version stays on the site until you approve.") + "</p>" +
+      (rows ? '<div class="mt-3 bg-ivory px-4">' + rows + "</div>" : "") +
+      '<div class="mt-4 flex flex-col gap-2 sm:flex-row"><button type="button" data-rv="approve" class="' + B_OLIVE + '">' + (r.isNew ? "Approve and publish" : "Approve changes") + '</button><button type="button" data-rv="decline" class="' + B_OUT + '">Decline</button></div></section>';
+  }
+  function bindReview(kind, item, after) {
+    $$("[data-rv]").forEach(function (b) {
+      b.addEventListener("click", function () {
+        var action = b.getAttribute("data-rv"), note = "";
+        if (action === "decline") { note = prompt("Optional: a short note for the artist on why, or what to change."); if (note === null) return; }
+        api("/api/admin/review", { method: "POST", body: { kind: kind, id: item.id, action: action, note: note } }).then(function () {
+          S.loaded[kind] = false; toast(action === "approve" ? "Approved and live" : "Declined"); after();
+        }).catch(fail);
+      });
+    });
+  }
+
   /* ---------------------------------------------------- team (owner only) */
   var TEAM = { team: [], activity: [] };
   function loadTeam() { return api("/api/admin/team").then(function (d) { TEAM = d; return d; }); }
@@ -768,21 +909,25 @@
   }
   function viewTeam() {
     loading("team", "Team");
-    Promise.all([loadTeam(), loadAll(["inbox", "orders"])]).then(function () {
+    Promise.all([loadTeam(), loadAll(["inbox", "orders", "artists"])]).then(function () {
       var rows = TEAM.team.map(function (m) {
-        var st = memberState(m), access = SECTIONS.filter(function (x) { return m.perms[x[0]]; }).map(function (x) { return x[1] + (m.perms[x[0]] === "view" ? " (view)" : ""); }).join(", ") || "No sections yet";
+        var st = memberState(m), access = m.perms.role === "artist" ? "Artist: " + (m.perms.artists.map(artistName).filter(Boolean).join(", ") || "not linked") + (m.perms.publish ? " · publishes directly" : " · needs approval")
+          : SECTIONS.filter(function (x) { return m.perms[x[0]]; }).map(function (x) { return x[1] + (m.perms[x[0]] === "view" ? " (view)" : ""); }).join(", ") || "No sections yet";
         return '<li><a href="#member/' + encodeURIComponent(m.id) + '" class="flex items-center gap-4 p-4 hover:bg-paper"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sand font-display text-[15px] font-semibold uppercase text-walnut">' + esc((m.name || m.username).charAt(0)) + '</span><span class="min-w-0 flex-1"><span class="block truncate text-[15px] font-medium text-walnut">' + esc(m.name || m.username) + ' <span class="font-normal text-stone">@' + esc(m.username) + '</span></span><span class="block truncate text-[13px] text-stone">' + esc(access) + "</span>" +
           '<span class="block text-[12px] text-stone">' + (m.expires_at ? "Until " + esc(new Date(m.expires_at).toLocaleString()) : "No end date") + " · " + (m.last_login ? "Last in " + esc(ago(m.last_login)) : "Never signed in") + '</span></span><span class="inline-flex h-6 shrink-0 items-center px-2 text-[10px] font-semibold uppercase tracking-[0.12em] ' + st[1] + '">' + st[0] + "</span></a></li>";
       }).join("");
-      var log = TEAM.activity.slice(0, 60).map(function (a) { return '<li class="flex gap-3 px-5 py-2.5 text-[14px]"><span class="w-24 shrink-0 truncate font-medium text-walnut">' + esc(a.who) + '</span><span class="min-w-0 flex-1 text-stone">' + esc(a.action) + '</span><span class="shrink-0 text-[12px] text-stone">' + esc(ago(a.at)) + "</span></li>"; }).join("");
+      var people = TEAM.activity.map(function (a) { return a.who; }).filter(function (w, i, arr) { return arr.indexOf(w) === i; });
+      var log = TEAM.activity.slice(0, 150).map(function (a) { return '<li data-who="' + esc(a.who) + '" class="flex gap-3 px-5 py-2.5 text-[14px]"><span class="w-24 shrink-0 truncate font-medium text-walnut">' + esc(a.who) + '</span><span class="min-w-0 flex-1 text-stone">' + esc(a.action) + '</span><span class="shrink-0 text-[12px] text-stone">' + esc(ago(a.at)) + "</span></li>"; }).join("");
       var body =
         '<div class="' + CARD + ' p-5"><p class="text-[15px] leading-relaxed text-walnut"><strong>You are the owner.</strong> Your login is the master password stored in Cloudflare, outside this dashboard, so no team member can change it, see it or lock you out. Only you can see this page.</p><p class="mt-2 text-[14px] text-stone">Changing anything on a login signs that person out straight away, so new limits apply at once.</p></div>' +
         '<section class="mt-6 ' + CARD + ' overflow-hidden"><div class="flex items-center justify-between border-b border-walnut/10 px-5 py-4"><h2 class="font-display text-[20px] text-walnut">Team logins</h2><span class="text-[13px] text-stone">' + TEAM.team.length + "</span></div>" +
           (rows ? '<ul class="divide-y divide-walnut/10">' + rows + "</ul>" : '<p class="px-5 py-10 text-center text-[15px] text-stone">No team logins yet. Create one to give someone limited, temporary access.</p>') + "</section>" +
         (TEAM.team.length ? '<button type="button" id="tm-signout" class="' + B_OUT + ' mt-4">Sign out every team member now</button>' : "") +
-        '<section class="mt-6 ' + CARD + ' overflow-hidden"><div class="border-b border-walnut/10 px-5 py-4"><h2 class="font-display text-[20px] text-walnut">Activity</h2><p class="mt-1 text-[13px] text-stone">Every change made in the dashboard, and who made it.</p></div>' +
+        '<section class="mt-6 ' + CARD + ' overflow-hidden"><div class="border-b border-walnut/10 px-5 py-4"><h2 class="font-display text-[20px] text-walnut">Activity</h2><p class="mt-1 text-[13px] text-stone">Every change made in the dashboard, and who made it.</p>' + (people.length > 1 ? '<select id="tm-who" class="' + INP + ' mt-3 sm:w-60"><option value="">Everyone</option>' + people.map(function (w) { return '<option>' + esc(w) + "</option>"; }).join("") + "</select>" : "") + "</div>" +
           (log ? '<ul class="divide-y divide-walnut/10">' + log + "</ul>" : '<p class="px-5 py-8 text-center text-[14px] text-stone">Nothing yet.</p>') + "</section>";
       shell("team", "Team", body, '<a href="#member/new" class="' + B_DARK + ' h-10 px-4">' + ic("plus", "h-4 w-4") + '<span class="hidden sm:inline">New login</span></a>');
+      var who = $("#tm-who");
+      if (who) who.addEventListener("change", function () { $$("[data-who]").forEach(function (li) { li.style.display = !who.value || li.getAttribute("data-who") === who.value ? "" : "none"; }); });
       var so = $("#tm-signout");
       if (so) so.addEventListener("click", function () { if (!confirm("Sign out every team member? They can sign in again with their password.")) return; api("/api/admin/team", { method: "POST", body: { action: "signout-all" } }).then(function () { toast("Everyone has been signed out"); }).catch(fail); });
     }).catch(fail);
@@ -791,9 +936,24 @@
   function localInput(iso) { if (!iso) return ""; var d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); }
   function viewMember(id) {
     loading("team", "Team");
-    loadTeam().then(function () {
+    Promise.all([loadTeam(), loadAll(["artists"])]).then(function () {
       var isNew = id === "new", m = isNew ? { username: "", name: "", perms: {}, expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), active: true } : TEAM.team.find(function (x) { return x.id === id; });
       if (!m) { location.hash = "#team"; return; }
+      var role = m.perms.role === "artist" ? "artist" : "team";
+      var PRESETS = [["Content editor", "Adds and edits artworks, artists and photos", { artworks: "edit", artists: "edit", photos: "edit" }],
+        ["Sales assistant", "Answers messages and handles orders", { inbox: "edit", orders: "edit", artworks: "view" }],
+        ["Viewer", "Can look at everything, change nothing", { artworks: "view", artists: "view", inbox: "view", orders: "view", photos: "view", settings: "view" }],
+        ["Manager", "Everything except the Team page", { artworks: "edit", artists: "edit", inbox: "edit", orders: "edit", photos: "edit", settings: "edit" }]];
+      var roleCard = function (val, title, hint) { return '<label class="cursor-pointer"><input type="radio" name="role" value="' + val + '" class="peer sr-only"' + (role === val ? " checked" : "") + '><span class="block h-full border border-walnut/20 bg-ivory p-4 peer-checked:border-walnut peer-checked:ring-1 peer-checked:ring-walnut"><span class="block text-[15px] font-semibold text-walnut">' + title + '</span><span class="mt-1 block text-[13px] text-stone">' + hint + "</span></span></label>"; };
+      var ap = m.perms.role === "artist" ? m.perms : { artists: [], publish: false, prices: false, sales: true };
+      var artistBox =
+        '<div data-role-panel="artist" class="grid gap-5">' +
+          '<div><p class="' + LBL + '">Linked artist profile</p><div class="grid gap-2 sm:grid-cols-2">' + (S.artists.map(function (a) { return '<label class="flex cursor-pointer items-center gap-3 border border-walnut/15 bg-ivory p-3"><input type="checkbox" name="art_' + esc(a.id) + '" data-artist="' + esc(a.id) + '" class="h-4 w-4 accent-[#161616]"' + (ap.artists.indexOf(a.id) > -1 ? " checked" : "") + '><span class="h-10 w-8 shrink-0 overflow-hidden bg-sand">' + thumb(a.portrait) + '</span><span class="text-[14px] font-medium text-walnut">' + esc(a.name) + "</span></label>"; }).join("") || '<p class="text-[14px] text-stone">Add the artist on the Artists page first.</p>') + '</div><p class="mt-1.5 text-[13px] text-stone">They only ever see works and profiles for the artist(s) ticked here. Everyone else stays invisible to them.</p></div>' +
+          '<div class="grid gap-1">' + toggle("a_publish", ap.publish, "Publish without my approval", "Off: new works and edits wait in your approval queue, and the live site doesn't change until you approve.") +
+          toggle("a_prices", ap.prices, "Can set and change prices", "Off: the price field is locked and you set prices yourself.") +
+          toggle("a_sales", ap.sales, "Can see sales of their own works", "Shows what sold, when and to which country. Buyer names, emails and addresses always stay hidden.") + "</div>" +
+          '<p class="text-[13px] text-stone">Artists can never delete works, feature works on the homepage, or see the Inbox, Orders, Settings or other artists.</p>' +
+        "</div>";
       var permRows = SECTIONS.map(function (x) {
         var v = m.perms[x[0]] || "";
         return '<div class="grid gap-2 py-3 sm:grid-cols-[1fr_auto] sm:items-center"><div><p class="text-[15px] font-medium text-walnut">' + x[1] + '</p><p class="text-[13px] text-stone">' + x[2] + '</p></div><div class="inline-flex border border-walnut/20" role="radiogroup">' +
@@ -813,18 +973,28 @@
             field("Access ends", '<input name="expires_at" id="tm-exp" type="datetime-local" value="' + localInput(m.expires_at) + '" class="' + INP + '">', "Leave empty for no end date.", true) +
             toggle("active", m.active !== false, "Login switched on", "Turn off to block this person instantly without deleting the login.") +
           "</section>" +
-          '<section class="' + CARD + ' p-5"><h2 class="font-display text-[20px] text-walnut">What they can reach</h2><p class="mt-1 text-[13px] text-stone">The Team page and your owner login are never available to them.</p><div class="mt-2 divide-y divide-walnut/10">' + permRows + "</div></section>" +
+          '<section class="' + CARD + ' grid gap-5 p-5"><div><h2 class="font-display text-[20px] text-walnut">What kind of login</h2><p class="mt-1 text-[13px] text-stone">The Team page and your owner login are never available to anyone else.</p></div>' +
+            '<div class="grid gap-3 sm:grid-cols-2">' + roleCard("artist", "Artist", "Sees and manages only their own works and profile.") + roleCard("team", "Team member", "Helps run the marketplace. You pick the sections.") + "</div>" +
+            artistBox +
+            '<div data-role-panel="team" class="grid gap-4"><div><p class="' + LBL + '">Quick presets</p><div class="grid gap-2 sm:grid-cols-2">' + PRESETS.map(function (pr, i) { return '<button type="button" data-preset="' + i + '" class="border border-walnut/20 bg-ivory p-3 text-left hover:border-walnut"><span class="block text-[14px] font-semibold text-walnut">' + pr[0] + '</span><span class="block text-[12px] text-stone">' + pr[1] + "</span></button>"; }).join("") + '</div></div><div class="divide-y divide-walnut/10">' + permRows + "</div></div>" +
+          "</section>" +
           '<div class="flex flex-col gap-3 sm:flex-row"><button type="submit" class="' + B_DARK + ' h-12 flex-1">' + (isNew ? "Create login" : "Save changes") + "</button>" + (isNew ? "" : '<button type="button" id="tm-del" class="' + B_OUT + ' h-12 text-red-700">' + ic("trash", "h-4 w-4") + "Delete login</button>") + "</div>" +
         "</form>";
       shell("team", isNew ? "New team login" : esc(m.name || m.username), body, "", "#team");
       $("#tm-gen").addEventListener("click", function () { $("#tm-pw").value = genPassword(); });
+      function showRole() { var r = (document.querySelector('input[name="role"]:checked') || {}).value; $$("[data-role-panel]").forEach(function (el) { el.style.display = el.getAttribute("data-role-panel") === r ? "" : "none"; }); }
+      $$('input[name="role"]').forEach(function (r) { r.addEventListener("change", showRole); }); showRole();
+      $$("[data-preset]").forEach(function (b) { b.addEventListener("click", function () { var pr = PRESETS[Number(b.getAttribute("data-preset"))][2]; SECTIONS.forEach(function (x) { var v = pr[x[0]] || ""; var el = document.querySelector('input[name="perm_' + x[0] + '"][value="' + v + '"]'); if (el) el.checked = true; }); toast(PRESETS[Number(b.getAttribute("data-preset"))][0] + " applied"); }); });
       $$("[data-days]").forEach(function (b) { b.addEventListener("click", function () { var d = Number(b.getAttribute("data-days")); $("#tm-exp").value = d ? localInput(new Date(Date.now() + d * 864e5).toISOString()) : ""; }); });
       var del = $("#tm-del");
       if (del) del.addEventListener("click", function () { if (!confirm("Delete this login? They will be signed out and can't sign in again.")) return; api("/api/admin/team?id=" + encodeURIComponent(m.id) + "&name=" + encodeURIComponent(m.username), { method: "DELETE" }).then(function () { toast("Login deleted"); location.hash = "#team"; }).catch(fail); });
       $("#tm-form").addEventListener("submit", function (e) {
         e.preventDefault();
-        var d = formData(e.target), perms = {};
-        SECTIONS.forEach(function (x) { var r = e.target.querySelector('input[name="perm_' + x[0] + '"]:checked'); if (r && r.value) perms[x[0]] = r.value; });
+        var d = formData(e.target), perms = {}, roleNow = (e.target.querySelector('input[name="role"]:checked') || {}).value;
+        if (roleNow === "artist") {
+          perms = { role: "artist", artists: $$("[data-artist]", e.target).filter(function (c) { return c.checked; }).map(function (c) { return c.getAttribute("data-artist"); }), publish: d.a_publish, prices: d.a_prices, sales: d.a_sales };
+          if (!perms.artists.length) { toast("Tick the artist this login belongs to", "err"); return; }
+        } else SECTIONS.forEach(function (x) { var r = e.target.querySelector('input[name="perm_' + x[0] + '"]:checked'); if (r && r.value) perms[x[0]] = r.value; });
         var out = { id: isNew ? undefined : m.id, name: d.name.trim(), username: d.username.trim().toLowerCase(), password: d.password, perms: perms, active: d.active, expires_at: d.expires_at ? new Date(d.expires_at).toISOString() : null };
         var pw = d.password;
         api("/api/admin/team", { method: "POST", body: out }).then(function (r) {
@@ -845,6 +1015,8 @@
     var h = (location.hash || "#overview").slice(1), parts = h.split("/"), v = parts[0], arg = decodeURIComponent(parts.slice(1).join("/"));
     if ((v === "team" || v === "member") && !(S.me && S.me.owner)) return noAccess();
     if (NEEDS[v] && !can(NEEDS[v], "view")) return noAccess();
+    if (v === "account") return viewAccount();
+    if (isArtist() && (v === "orders" || v === "order")) return viewMySales();
     ({ team: viewTeam, member: function () { viewMember(arg); }, overview: viewOverview, artworks: viewArtworks, artwork: function () { viewArtwork(arg); }, artists: viewArtists, artist: function () { viewArtist(arg); },
        inbox: viewInbox, message: function () { viewMessage(arg); }, orders: viewOrders, order: function () { viewOrder(arg); }, photos: viewPhotos, settings: viewSettings }[v] || viewOverview)();
   }

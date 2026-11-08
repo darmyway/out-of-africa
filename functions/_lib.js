@@ -64,8 +64,14 @@ export async function makeSession(env, days = 30, who = { u: "owner" }) {
 export const SECTIONS = ["artworks", "artists", "inbox", "orders", "photos", "settings"];
 const ALL_EDIT = Object.fromEntries(SECTIONS.map((k) => [k, "edit"]));
 export function cleanPerms(p) {
+  p = p || {};
+  if (p.role === "artist") {
+    // Artist login: tied to their own artist profile(s), never sees anyone else's.
+    const artists = (Array.isArray(p.artists) ? p.artists : []).map((x) => String(x).slice(0, 80)).filter(Boolean).slice(0, 10);
+    return { role: "artist", artists, publish: !!p.publish, prices: !!p.prices, sales: !!p.sales };
+  }
   const out = {};
-  for (const k of SECTIONS) if (p && (p[k] === "view" || p[k] === "edit")) out[k] = p[k];
+  for (const k of SECTIONS) if (p[k] === "view" || p[k] === "edit") out[k] = p[k];
   return out;
 }
 
@@ -88,7 +94,8 @@ export async function getUser(env, request) {
   const r = await DB.prepare("SELECT id, username, name, perms, expires_at, active, session_ver FROM team WHERE id = ?").bind(data.u).first();
   if (!r || !r.active || r.session_ver !== data.v) return null;
   if (r.expires_at && new Date(r.expires_at).getTime() <= Date.now()) return null;
-  return { id: r.id, owner: false, username: r.username, name: r.name || r.username, perms: cleanPerms(JSON.parse(r.perms || "{}")), expires_at: r.expires_at };
+  const perms = cleanPerms(JSON.parse(r.perms || "{}"));
+  return { id: r.id, owner: false, artist: perms.role === "artist", username: r.username, name: r.name || r.username, perms, expires_at: r.expires_at };
 }
 export async function checkSession(env, request) { return !!(await getUser(env, request)); }
 
@@ -135,4 +142,12 @@ export function cleanArtist(a, id) {
     acceptsCommissions: !!a.acceptsCommissions, featured: !!a.featured,
     instagram: clip(a.instagram, 200), facebook: clip(a.facebook, 200)
   };
+}
+
+/* ------------------------------------------------------------ approvals */
+// A pending change lives on the item as `review` and never reaches the public site.
+export const publicItem = (x) => { const { review, ...rest } = x; return rest; };
+export async function getRow(DB, table, id) {
+  const r = id ? await DB.prepare(`SELECT id, data FROM ${table} WHERE id = ?`).bind(String(id)).first() : null;
+  return r ? { ...JSON.parse(r.data), id: r.id } : null;
 }

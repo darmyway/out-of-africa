@@ -2,9 +2,19 @@
 import { json, bad, db, now, rid } from "../../_lib.js";
 const STATUSES = ["requested", "quoted", "paid", "shipped", "delivered", "cancelled"];
 
-export async function onRequestGet({ env }) {
-  const { results } = await (await db(env)).prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 500").all();
-  return json(results.map((r) => ({ ...r, data: JSON.parse(r.data || "{}") })));
+export async function onRequestGet({ env, data }) {
+  const DB = await db(env), u = data.user;
+  const { results } = await DB.prepare("SELECT * FROM orders ORDER BY created_at DESC LIMIT 500").all();
+  const rows = results.map((r) => ({ ...r, data: JSON.parse(r.data || "{}") }));
+  if (!u.artist) return json(rows);
+  // Artists see sales of their own works only, with no buyer contact details.
+  const works = (await DB.prepare("SELECT id, data FROM artworks").all()).results.filter((w) => u.perms.artists.includes(JSON.parse(w.data).artist)).map((w) => w.id);
+  return json(rows.map((o) => {
+    const items = (o.data.items || []).filter((i) => works.includes(i.id));
+    if (!items.length) return null;
+    const country = String((o.data.buyer || {}).address || "").split(",").pop().trim();
+    return { id: o.id, status: o.status, created_at: o.created_at, sale: { items: items.map((i) => ({ id: i.id, title: i.title, price: i.price })), currency: o.data.currency || "USD", country } };
+  }).filter(Boolean));
 }
 export async function onRequestPost({ request, env }) {           // create manually (e.g. from an enquiry)
   const b = await request.json(), DB = await db(env);

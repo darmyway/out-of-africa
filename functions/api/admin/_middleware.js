@@ -5,10 +5,18 @@ const OPEN = ["/api/admin/login", "/api/admin/session", "/api/admin/logout"];
 const SECTION = { artworks: "artworks", artists: "artists", submissions: "inbox", orders: "orders", media: "photos", settings: "settings" };
 const PUBLIC_READ = ["artworks", "artists", "settings", "media", "stats"]; // same data the public site shows
 const VERB = { POST: "Saved", PUT: "Updated", PATCH: "Updated", DELETE: "Deleted" };
-const NAME = { artworks: "artwork", artists: "artist", submissions: "inbox message", orders: "order", media: "photo", settings: "settings", team: "team login" };
+const NAME = { account: "own password", review: "review", artworks: "artwork", artists: "artist", submissions: "inbox message", orders: "order", media: "photo", settings: "settings", team: "team login" };
 
 function allowed(user, part, method) {
+  if (part === "account") return method === "POST";
   if (user.owner) return true;
+  if (user.artist) {                                                   // scoped further inside each endpoint
+    if (["artworks", "artists"].includes(part)) return method === "GET" || method === "POST";
+    if (part === "media") return ["GET", "POST", "DELETE"].includes(method);
+    if (part === "orders") return method === "GET" && user.perms.sales;
+    return method === "GET" && ["settings", "stats"].includes(part);
+  }
+  if (part === "review") return method === "POST" && (user.perms.artworks === "edit" || user.perms.artists === "edit");
   if (part === "team") return false;                                   // only the owner manages logins
   if (method === "GET" && PUBLIC_READ.includes(part)) return true;
   const p = user.perms;
@@ -35,7 +43,7 @@ export async function onRequest(context) {
     try {
       if ((request.headers.get("content-type") || "").includes("json")) {
         const b = await request.clone().json();
-        label = b.title || b.name || b.username || b.status || b.id || "";
+        label = b.title || b.name || b.username || (b.action && b.id ? b.action + " " + b.id : "") || b.status || b.id || "";
       }
     } catch (e) {}
     label = label || url.searchParams.get("name") || url.searchParams.get("id") || url.searchParams.get("url") || "";
