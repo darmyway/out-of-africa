@@ -26,7 +26,7 @@ details[open] .acc-icon { transform: rotate(45deg); }
   display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px;
   transform: translate3d(calc(var(--mx, 0) * -26px), calc(var(--my, 0) * -18px + var(--sy, 0px)), 0) rotate(-9deg);
   transition: transform .9s cubic-bezier(.2,.7,.2,1);
-  opacity: .42;
+  opacity: .6;
 }
 @media (min-width: 1024px) {
   .hero-wall { inset: -30% 2% -30% 47%; gap: 14px; opacity: 1; transform: translate3d(calc(var(--mx, 0) * -26px), calc(var(--my, 0) * -18px + var(--sy, 0px)), 0) rotate(-7deg); }
@@ -52,7 +52,7 @@ details[open] .acc-icon { transform: rotate(45deg); }
   .hero-tile:hover figcaption { transform: none; }
 }
 .hero-fade { position: absolute; inset: 0; z-index: 1; pointer-events: none;
-  background: linear-gradient(180deg, rgba(22,22,22,.55), rgba(22,22,22,.78) 55%, #161616); }
+  background: linear-gradient(180deg, rgba(22,22,22,.5) 0%, rgba(22,22,22,.72) 45%, rgba(22,22,22,.9) 80%, #161616); }
 @media (min-width: 1024px) {
   .hero-fade { background:
     linear-gradient(90deg, #161616 0%, #161616 40%, rgba(22,22,22,.7) 48%, rgba(22,22,22,0) 58%),
@@ -82,8 +82,8 @@ html:not(.motion) .hero-rotator span { position: static; transform: none; opacit
 html:not(.motion) .hero-rotator span:not(:first-child) { display: none; }
 
 /* seal */
-.hero-seal { position: absolute; z-index: 10; right: 20px; bottom: 20px; width: 104px; height: 104px; display: none; color: #FAFAF7; }
-@media (min-width: 768px) { .hero-seal { display: block; right: 36px; bottom: 36px; width: 132px; height: 132px; } }
+.hero-seal { position: absolute; z-index: 10; width: 124px; height: 124px; display: none; color: #FAFAF7; }
+@media (min-width: 1024px) { .hero-seal { display: block; left: calc(50% - 40px); bottom: 48px; } }
 .hero-seal svg:first-child { width: 100%; height: 100%; animation: spin 22s linear infinite; }
 .hero-seal text { fill: currentColor; font-size: 10.5px; font-weight: 600; letter-spacing: .34em; font-family: Inter, sans-serif; }
 .hero-seal-core { position: absolute; inset: 30%; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: #7B7350; transition: transform .4s cubic-bezier(.2,.7,.2,1), background .3s; }
