@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body { @apply bg-ivory text-walnut font-sans antialiased; }
+  .font-display { letter-spacing: -.03em; }
+  .font-accent { letter-spacing: -.01em; }
+  :focus-visible { outline: 2px solid #5C5636; outline-offset: 3px; }
+  details > summary { list-style: none; }
+  details > summary::-webkit-details-marker { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .animate-marquee { animation: none; } html { scroll-behavior: auto; } }
+html { scroll-behavior: smooth; }
+.reveal { opacity: 0; transform: translateY(14px); transition: opacity .7s cubic-bezier(.2,.7,.2,1), transform .7s cubic-bezier(.2,.7,.2,1); }
+.reveal.is-in { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) { .reveal { opacity: 1; transform: none; transition: none; } }
+details[open] .acc-icon { transform: rotate(45deg); }

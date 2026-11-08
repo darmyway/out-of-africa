@@ -1,0 +1,14 @@
+# Used for local testing only. On Cloudflare, bindings are set in the
+# Pages project settings (D1 database "DB", KV namespace "MEDIA").
+name = "out-of-africa"
+pages_build_output_dir = "public"
+compatibility_date = "2026-06-01"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "out-of-africa-db"
+database_id = "00000000-0000-0000-0000-000000000000"
+
+[[kv_namespaces]]
+binding = "MEDIA"
+id = "00000000000000000000000000000000"
