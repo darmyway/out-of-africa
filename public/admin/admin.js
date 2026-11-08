@@ -5,7 +5,13 @@
   "use strict";
 
   /* ---------------------------------------------------- state & helpers */
-  var S = { artworks: [], artists: [], site: {}, inbox: [], orders: [], media: [], stats: null, loaded: {} };
+  var S = { artworks: [], artists: [], site: {}, inbox: [], orders: [], media: [], stats: null, loaded: {}, me: null };
+  var SECTIONS = [["artworks", "Artworks", "Add, edit and price artworks"], ["artists", "Artists", "Artist profiles"], ["inbox", "Inbox", "Messages and applications (contains buyer contact details)"], ["orders", "Orders", "Order requests, quotes and payment links"], ["photos", "Photos", "Photo library uploads and deletes"], ["settings", "Settings", "Contact details, homepage, terms"]];
+  function can(sec, level) {
+    if (!S.me) return false; if (S.me.owner) return true;
+    var p = S.me.perms[sec]; return level === "edit" ? p === "edit" : !!p;
+  }
+  function setMe(sess) { S.me = sess && sess.me ? sess.me : null; }
   var app = document.getElementById("app");
   function $(s, c) { return (c || document).querySelector(s); }
   function $$(s, c) { return Array.prototype.slice.call((c || document).querySelectorAll(s)); }
@@ -61,6 +67,7 @@
     chat: '<path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1-4.6A8 8 0 1 1 21 12z"/>',
     copy: '<rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
     logout: '<path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/>',
+    shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>',
     left: '<path d="m15 18-6-6 6-6"/>', right: '<path d="m9 18 6-6-6-6"/>'
   };
   function ic(name, cls) { return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" class="' + (cls || "h-5 w-5") + '" aria-hidden="true">' + ICON[name] + "</svg>"; }
@@ -124,16 +131,25 @@
   /* ---------------------------------------------------- data loading */
   function load(what, force) {
     var map = { artworks: "/api/admin/artworks", artists: "/api/admin/artists", site: "/api/admin/settings", inbox: "/api/admin/submissions", orders: "/api/admin/orders", media: "/api/admin/media", stats: "/api/admin/stats" };
+    if ((what === "inbox" || what === "orders") && !can(what, "view")) { S[what] = []; return Promise.resolve([]); }
     if (S.loaded[what] && !force) return Promise.resolve(S[what]);
     return api(map[what]).then(function (d) { S[what] = d; S.loaded[what] = true; return d; });
   }
   function loadAll(list, force) { return Promise.all(list.map(function (w) { return load(w, force); })); }
 
   /* ---------------------------------------------------- shell */
-  var NAV = [["overview", "Overview", "home"], ["artworks", "Artworks", "art"], ["artists", "Artists", "people"], ["inbox", "Inbox", "inbox"], ["orders", "Orders", "orders"], ["photos", "Photos", "photo"], ["settings", "Settings", "settings"]];
-  var MOBILE_NAV = ["overview", "artworks", "inbox", "orders", "settings"];
+  var ALL_NAV = [["overview", "Overview", "home"], ["artworks", "Artworks", "art"], ["artists", "Artists", "people"], ["inbox", "Inbox", "inbox"], ["orders", "Orders", "orders"], ["photos", "Photos", "photo"], ["settings", "Settings", "settings"], ["team", "Team", "shield"]];
+  function navAllowed(k) { return k === "overview" || (k === "team" ? !!(S.me && S.me.owner) : can(k, "view")); }
+  var NAV = ALL_NAV, MOBILE_NAV = [];
+  function buildNav() {
+    NAV = ALL_NAV.filter(function (n) { return navAllowed(n[0]); });
+    MOBILE_NAV = ["overview", "artworks", "inbox", "orders", "settings", "photos", "artists"].filter(navAllowed).slice(0, 5);
+  }
 
   function shell(active, title, body, actions, back) {
+    buildNav();
+    if (S.me && !S.me.owner && SECTIONS.some(function (x) { return x[0] === active; }) && !can(active, "edit"))
+      body = '<div class="mb-5 border border-walnut/15 bg-sand px-4 py-3 text-[14px] text-walnut">View only. You can look around this section, but changes won\'t save.</div>' + body;
     var newCount = (S.inbox || []).filter(function (m) { return m.status === "new"; }).length;
     var openOrders = (S.orders || []).filter(function (o) { return o.status === "requested"; }).length;
     function badge(k) { var n = k === "inbox" ? newCount : k === "orders" ? openOrders : 0; return n ? '<span class="ml-auto inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-olive px-1.5 text-[11px] font-semibold text-white">' + n + "</span>" : ""; }
@@ -151,13 +167,13 @@
         '<aside class="hidden bg-walnut text-ivory lg:flex lg:flex-col lg:sticky lg:top-0 lg:h-screen">' +
           '<div class="flex items-center gap-2.5 px-5 py-6">' + arch("h-8 w-8") + '<div><p class="font-display text-[15px] font-bold leading-none tracking-[0.18em]">OUT <span class="font-accent font-normal normal-case italic tracking-normal">of</span> AFRICA</p><p class="mt-1 text-[11px] uppercase tracking-[0.2em] text-sand">Studio</p></div></div>' +
           '<nav class="flex-1 px-2">' + side + "</nav>" +
-          '<div class="space-y-1 border-t border-ivory/10 p-2"><a href="/" target="_blank" rel="noopener" class="flex items-center gap-3 px-4 py-3 text-[14px] text-ivory/65 hover:text-ivory">' + ic("ext", "h-[18px] w-[18px]") + 'View live site</a><button type="button" data-logout class="flex w-full items-center gap-3 px-4 py-3 text-left text-[14px] text-ivory/65 hover:text-ivory">' + ic("logout", "h-[18px] w-[18px]") + "Sign out</button></div>" +
+          '<div class="space-y-1 border-t border-ivory/10 p-2"><a href="/" target="_blank" rel="noopener" class="flex items-center gap-3 px-4 py-3 text-[14px] text-ivory/65 hover:text-ivory">' + ic("ext", "h-[18px] w-[18px]") + 'View live site</a><button type="button" data-logout class="flex w-full items-center gap-3 px-4 py-3 text-left text-[14px] text-ivory/65 hover:text-ivory">' + ic("logout", "h-[18px] w-[18px]") + "Sign out</button>" + (S.me ? '<p class="px-4 pb-2 pt-1 text-[12px] text-ivory/45">Signed in as ' + esc(S.me.name) + (S.me.owner ? "" : (S.me.expires_at ? " · until " + esc(new Date(S.me.expires_at).toLocaleDateString()) : "")) + "</p>" : "") + "</div>" +
         "</aside>" +
         '<div class="min-w-0 pb-28 lg:pb-12">' +
           '<header class="sticky top-0 z-30 border-b border-walnut/10 bg-paper/95 backdrop-blur-sm"><div class="mx-auto flex min-h-[64px] max-w-5xl items-center gap-3 px-4 py-2 md:px-8">' +
             (back ? '<a href="' + back + '" class="-ml-2 flex h-10 w-10 items-center justify-center text-walnut" aria-label="Back">' + ic("back") + "</a>" : '<span class="lg:hidden">' + arch("h-7 w-7 text-walnut") + "</span>") +
             '<h1 class="min-w-0 flex-1 truncate font-display text-[22px] font-semibold leading-tight text-walnut md:text-[26px]">' + title + "</h1>" +
-            '<div class="flex shrink-0 items-center gap-2">' + (actions || "") + "</div>" +
+            '<div class="flex shrink-0 items-center gap-2">' + (actions || "") + (back ? "" : '<button type="button" data-logout class="flex h-10 w-10 items-center justify-center text-stone lg:hidden" aria-label="Sign out">' + ic("logout", "h-5 w-5") + "</button>") + "</div>" +
           "</div></header>" +
           '<main class="mx-auto max-w-5xl px-4 py-6 md:px-8 md:py-8">' + body + "</main>" +
         "</div>" +
@@ -168,25 +184,25 @@
     window.scrollTo(0, 0);
   }
   function loading(active, title) { shell(active, title, '<div class="flex items-center gap-3 py-20 text-stone"><span class="h-4 w-4 animate-pulse rounded-full bg-olive"></span>Loading…</div>'); }
-  function logout() { api("/api/admin/logout", { method: "POST", body: {} }).finally(function () { S.loaded = {}; renderLogin(); }); }
+  function logout() { api("/api/admin/logout", { method: "POST", body: {} }).finally(function () { S.loaded = {}; S.me = null; renderLogin(); }); }
 
   /* ---------------------------------------------------- login */
   function renderLogin(msg) {
     app.innerHTML =
       '<div class="flex min-h-screen items-center justify-center bg-walnut px-5 py-16 text-ivory"><div class="w-full max-w-sm">' +
         '<div class="mb-10 flex flex-col items-center text-center">' + arch("h-14 w-14") + '<p class="mt-5 font-display text-[22px] font-bold tracking-[0.18em]">OUT <span class="font-accent font-normal normal-case italic tracking-normal">of</span> AFRICA</p><p class="mt-2 text-[12px] uppercase tracking-[0.24em] text-sand">Studio</p></div>' +
-        '<form id="login" class="grid gap-4"><label class="block"><span class="mb-1.5 block text-sm font-medium text-ivory">Password</span><input name="password" type="password" autocomplete="current-password" required class="h-12 w-full border border-ivory/25 bg-walnut-soft px-4 text-[16px] text-ivory placeholder:text-ivory/40 focus:border-ivory focus:outline-none" placeholder="Your dashboard password"></label>' +
+        '<form id="login" class="grid gap-4"><label class="block"><span class="mb-1.5 flex justify-between text-sm font-medium text-ivory"><span>Username</span><span class="font-normal text-ivory/50">Owner: leave empty</span></span><input name="username" autocomplete="username" autocapitalize="none" spellcheck="false" class="h-12 w-full border border-ivory/25 bg-walnut-soft px-4 text-[16px] text-ivory placeholder:text-ivory/40 focus:border-ivory focus:outline-none" placeholder="Team members only"></label><label class="block"><span class="mb-1.5 block text-sm font-medium text-ivory">Password</span><input name="password" type="password" autocomplete="current-password" required class="h-12 w-full border border-ivory/25 bg-walnut-soft px-4 text-[16px] text-ivory placeholder:text-ivory/40 focus:border-ivory focus:outline-none" placeholder="Your dashboard password"></label>' +
         '<button class="inline-flex h-12 items-center justify-center bg-ivory text-[12px] font-semibold uppercase tracking-[0.14em] text-walnut hover:bg-white">Sign in</button>' +
         '<p id="login-msg" class="min-h-[20px] text-center text-sm text-red-300">' + esc(msg || "") + "</p></form>" +
         '<p class="mt-8 text-center text-[13px] text-ivory/50"><a href="/" class="underline underline-offset-4 hover:text-ivory">Back to the website</a></p>' +
       "</div></div>";
     var f = $("#login");
-    f.password.focus();
+    f.username.focus();
     f.addEventListener("submit", function (e) {
       e.preventDefault();
       var b = f.querySelector("button"); b.disabled = true; b.textContent = "Signing in…";
-      api("/api/admin/login", { method: "POST", body: { password: f.password.value } })
-        .then(function () { route(); })
+      api("/api/admin/login", { method: "POST", body: { username: f.username.value.trim(), password: f.password.value } })
+        .then(function () { return api("/api/admin/session"); }).then(function (s) { setMe(s); S.loaded = {}; location.hash = "#overview"; route(); })
         .catch(function (err) { $("#login-msg").textContent = err.message; b.disabled = false; b.textContent = "Sign in"; });
     });
   }
@@ -214,17 +230,18 @@
           stat(st.artworks.available, "Works available", "#artworks") + stat(st.artworks.sold, "Works sold", "#artworks") +
         "</div>" +
         '<div class="mt-6 grid gap-3 sm:grid-cols-3">' +
-          '<a href="#artwork/new" class="' + B_DARK + ' h-14">' + ic("plus", "h-4 w-4") + "Add artwork</a>" +
-          '<a href="#artist/new" class="' + B_OUT + ' h-14">' + ic("plus", "h-4 w-4") + "Add artist</a>" +
+          (can("artworks", "edit") ? '<a href="#artwork/new" class="' + B_DARK + ' h-14">' + ic("plus", "h-4 w-4") + "Add artwork</a>" : "") +
+          (can("artists", "edit") ? '<a href="#artist/new" class="' + B_OUT + ' h-14">' + ic("plus", "h-4 w-4") + "Add artist</a>" : "") +
           '<a href="/" target="_blank" rel="noopener" class="' + B_OUT + ' h-14">' + ic("ext", "h-4 w-4") + "View live site</a>" +
         "</div>" +
         '<div class="mt-8 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">' +
           '<section class="' + CARD + ' min-w-0 overflow-hidden"><div class="flex items-center justify-between border-b border-walnut/10 px-5 py-4"><h2 class="font-display text-[20px] text-walnut">Latest messages</h2><a href="#inbox" class="text-[13px] font-medium text-walnut underline underline-offset-4">View all</a></div>' +
-            (S.inbox.slice(0, 6).map(inboxRow).join("") || '<p class="px-5 py-10 text-center text-[15px] text-stone">No messages yet. Enquiries, orders and applications will appear here.</p>') +
+            (!can("inbox", "view") ? '<p class="px-5 py-10 text-center text-[15px] text-stone">You don\'t have access to the Inbox.</p>' : S.inbox.slice(0, 6).map(inboxRow).join("") || '<p class="px-5 py-10 text-center text-[15px] text-stone">No messages yet. Enquiries, orders and applications will appear here.</p>') +
           "</section>" +
+          (!S.me.owner ? '<section class="' + CARD + ' self-start p-5"><h2 class="font-display text-[20px] text-walnut">Your access</h2><ul class="mt-3 grid gap-2 text-[14px]">' + SECTIONS.filter(function (x) { return can(x[0], "view"); }).map(function (x) { return '<li class="flex justify-between gap-3"><span class="text-walnut">' + x[1] + '</span><span class="text-stone">' + (can(x[0], "edit") ? "Can edit" : "View only") + "</span></li>"; }).join("") + "</ul></section>" :
           '<section class="' + CARD + ' self-start"><div class="border-b border-walnut/10 px-5 py-4"><h2 class="font-display text-[20px] text-walnut">Setup checklist</h2></div><ul class="divide-y divide-walnut/10">' +
             checks.map(function (c) { return '<li class="flex gap-3 px-5 py-3.5"><span class="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full ' + (c[0] ? "bg-olive text-white" : "border border-walnut/30") + '">' + (c[0] ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" class="h-3 w-3"><path d="M20 6 9 17l-5-5"/></svg>' : "") + '</span><span><span class="block text-[14px] font-medium ' + (c[0] ? "text-stone line-through decoration-walnut/30" : "text-walnut") + '">' + c[1] + "</span>" + (!c[0] && c[2] ? '<span class="block text-[13px] text-stone">' + esc(c[2]) + "</span>" : "") + "</span></li>"; }).join("") +
-          "</ul></section>" +
+          "</ul></section>") +
         "</div>";
       shell("overview", "Overview", body);
     }).catch(fail);
@@ -740,16 +757,101 @@
     }).catch(fail);
   }
 
+
+  /* ---------------------------------------------------- team (owner only) */
+  var TEAM = { team: [], activity: [] };
+  function loadTeam() { return api("/api/admin/team").then(function (d) { TEAM = d; return d; }); }
+  function memberState(m) {
+    if (!m.active) return ["Switched off", "bg-paper text-stone border border-walnut/15"];
+    if (m.expires_at && new Date(m.expires_at) <= new Date()) return ["Expired", "bg-paper text-stone border border-walnut/15"];
+    return ["Active", "bg-olive text-white"];
+  }
+  function viewTeam() {
+    loading("team", "Team");
+    Promise.all([loadTeam(), loadAll(["inbox", "orders"])]).then(function () {
+      var rows = TEAM.team.map(function (m) {
+        var st = memberState(m), access = SECTIONS.filter(function (x) { return m.perms[x[0]]; }).map(function (x) { return x[1] + (m.perms[x[0]] === "view" ? " (view)" : ""); }).join(", ") || "No sections yet";
+        return '<li><a href="#member/' + encodeURIComponent(m.id) + '" class="flex items-center gap-4 p-4 hover:bg-paper"><span class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-sand font-display text-[15px] font-semibold uppercase text-walnut">' + esc((m.name || m.username).charAt(0)) + '</span><span class="min-w-0 flex-1"><span class="block truncate text-[15px] font-medium text-walnut">' + esc(m.name || m.username) + ' <span class="font-normal text-stone">@' + esc(m.username) + '</span></span><span class="block truncate text-[13px] text-stone">' + esc(access) + "</span>" +
+          '<span class="block text-[12px] text-stone">' + (m.expires_at ? "Until " + esc(new Date(m.expires_at).toLocaleString()) : "No end date") + " · " + (m.last_login ? "Last in " + esc(ago(m.last_login)) : "Never signed in") + '</span></span><span class="inline-flex h-6 shrink-0 items-center px-2 text-[10px] font-semibold uppercase tracking-[0.12em] ' + st[1] + '">' + st[0] + "</span></a></li>";
+      }).join("");
+      var log = TEAM.activity.slice(0, 60).map(function (a) { return '<li class="flex gap-3 px-5 py-2.5 text-[14px]"><span class="w-24 shrink-0 truncate font-medium text-walnut">' + esc(a.who) + '</span><span class="min-w-0 flex-1 text-stone">' + esc(a.action) + '</span><span class="shrink-0 text-[12px] text-stone">' + esc(ago(a.at)) + "</span></li>"; }).join("");
+      var body =
+        '<div class="' + CARD + ' p-5"><p class="text-[15px] leading-relaxed text-walnut"><strong>You are the owner.</strong> Your login is the master password stored in Cloudflare, outside this dashboard, so no team member can change it, see it or lock you out. Only you can see this page.</p><p class="mt-2 text-[14px] text-stone">Changing anything on a login signs that person out straight away, so new limits apply at once.</p></div>' +
+        '<section class="mt-6 ' + CARD + ' overflow-hidden"><div class="flex items-center justify-between border-b border-walnut/10 px-5 py-4"><h2 class="font-display text-[20px] text-walnut">Team logins</h2><span class="text-[13px] text-stone">' + TEAM.team.length + "</span></div>" +
+          (rows ? '<ul class="divide-y divide-walnut/10">' + rows + "</ul>" : '<p class="px-5 py-10 text-center text-[15px] text-stone">No team logins yet. Create one to give someone limited, temporary access.</p>') + "</section>" +
+        (TEAM.team.length ? '<button type="button" id="tm-signout" class="' + B_OUT + ' mt-4">Sign out every team member now</button>' : "") +
+        '<section class="mt-6 ' + CARD + ' overflow-hidden"><div class="border-b border-walnut/10 px-5 py-4"><h2 class="font-display text-[20px] text-walnut">Activity</h2><p class="mt-1 text-[13px] text-stone">Every change made in the dashboard, and who made it.</p></div>' +
+          (log ? '<ul class="divide-y divide-walnut/10">' + log + "</ul>" : '<p class="px-5 py-8 text-center text-[14px] text-stone">Nothing yet.</p>') + "</section>";
+      shell("team", "Team", body, '<a href="#member/new" class="' + B_DARK + ' h-10 px-4">' + ic("plus", "h-4 w-4") + '<span class="hidden sm:inline">New login</span></a>');
+      var so = $("#tm-signout");
+      if (so) so.addEventListener("click", function () { if (!confirm("Sign out every team member? They can sign in again with their password.")) return; api("/api/admin/team", { method: "POST", body: { action: "signout-all" } }).then(function () { toast("Everyone has been signed out"); }).catch(fail); });
+    }).catch(fail);
+  }
+  function genPassword() { var c = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789", a = new Uint32Array(14); crypto.getRandomValues(a); return Array.prototype.map.call(a, function (n) { return c[n % c.length]; }).join(""); }
+  function localInput(iso) { if (!iso) return ""; var d = new Date(iso); d.setMinutes(d.getMinutes() - d.getTimezoneOffset()); return d.toISOString().slice(0, 16); }
+  function viewMember(id) {
+    loading("team", "Team");
+    loadTeam().then(function () {
+      var isNew = id === "new", m = isNew ? { username: "", name: "", perms: {}, expires_at: new Date(Date.now() + 7 * 864e5).toISOString(), active: true } : TEAM.team.find(function (x) { return x.id === id; });
+      if (!m) { location.hash = "#team"; return; }
+      var permRows = SECTIONS.map(function (x) {
+        var v = m.perms[x[0]] || "";
+        return '<div class="grid gap-2 py-3 sm:grid-cols-[1fr_auto] sm:items-center"><div><p class="text-[15px] font-medium text-walnut">' + x[1] + '</p><p class="text-[13px] text-stone">' + x[2] + '</p></div><div class="inline-flex border border-walnut/20" role="radiogroup">' +
+          [["", "No access"], ["view", "View"], ["edit", "Edit"]].map(function (o) { return '<label class="cursor-pointer"><input type="radio" name="perm_' + x[0] + '" value="' + o[0] + '" class="peer sr-only"' + (v === o[0] ? " checked" : "") + '><span class="block px-3.5 py-2 text-[13px] font-medium text-stone peer-checked:bg-walnut peer-checked:text-ivory peer-focus-visible:outline peer-focus-visible:outline-2">' + o[1] + "</span></label>"; }).join("") +
+          "</div></div>";
+      }).join("");
+      var body =
+        '<form id="tm-form" class="grid gap-5">' +
+          '<section class="' + CARD + ' grid gap-5 p-5"><h2 class="font-display text-[20px] text-walnut">Login details</h2><div class="grid gap-5 sm:grid-cols-2">' +
+            field("Their name", input("name", m.name, 'placeholder="e.g. Sharyn"'), "", true) +
+            field("Username", input("username", m.username, 'required autocapitalize="none" spellcheck="false" placeholder="e.g. sharyn"'), "Letters, numbers, dots or dashes.") +
+          "</div>" +
+          field(isNew ? "Password" : "New password", '<div class="flex gap-2"><input name="password" id="tm-pw" type="text" autocomplete="new-password" class="' + INP + ' font-mono" placeholder="' + (isNew ? "At least 8 characters" : "Leave empty to keep the current one") + '"' + (isNew ? " required" : "") + '><button type="button" id="tm-gen" class="' + B_OUT + ' shrink-0 px-4">Generate</button></div>', "Send it to them privately, for example on WhatsApp. It isn't shown again after you save.") +
+          "</section>" +
+          '<section class="' + CARD + ' grid gap-5 p-5"><div><h2 class="font-display text-[20px] text-walnut">How long</h2><p class="mt-1 text-[13px] text-stone">The login stops working at this time, automatically.</p></div>' +
+            '<div class="flex flex-wrap gap-2">' + [["1 day", 1], ["7 days", 7], ["30 days", 30], ["No end date", 0]].map(function (o) { return '<button type="button" data-days="' + o[1] + '" class="h-9 border border-walnut/20 px-3 text-[13px] font-medium text-walnut hover:border-walnut">' + o[0] + "</button>"; }).join("") + "</div>" +
+            field("Access ends", '<input name="expires_at" id="tm-exp" type="datetime-local" value="' + localInput(m.expires_at) + '" class="' + INP + '">', "Leave empty for no end date.", true) +
+            toggle("active", m.active !== false, "Login switched on", "Turn off to block this person instantly without deleting the login.") +
+          "</section>" +
+          '<section class="' + CARD + ' p-5"><h2 class="font-display text-[20px] text-walnut">What they can reach</h2><p class="mt-1 text-[13px] text-stone">The Team page and your owner login are never available to them.</p><div class="mt-2 divide-y divide-walnut/10">' + permRows + "</div></section>" +
+          '<div class="flex flex-col gap-3 sm:flex-row"><button type="submit" class="' + B_DARK + ' h-12 flex-1">' + (isNew ? "Create login" : "Save changes") + "</button>" + (isNew ? "" : '<button type="button" id="tm-del" class="' + B_OUT + ' h-12 text-red-700">' + ic("trash", "h-4 w-4") + "Delete login</button>") + "</div>" +
+        "</form>";
+      shell("team", isNew ? "New team login" : esc(m.name || m.username), body, "", "#team");
+      $("#tm-gen").addEventListener("click", function () { $("#tm-pw").value = genPassword(); });
+      $$("[data-days]").forEach(function (b) { b.addEventListener("click", function () { var d = Number(b.getAttribute("data-days")); $("#tm-exp").value = d ? localInput(new Date(Date.now() + d * 864e5).toISOString()) : ""; }); });
+      var del = $("#tm-del");
+      if (del) del.addEventListener("click", function () { if (!confirm("Delete this login? They will be signed out and can't sign in again.")) return; api("/api/admin/team?id=" + encodeURIComponent(m.id) + "&name=" + encodeURIComponent(m.username), { method: "DELETE" }).then(function () { toast("Login deleted"); location.hash = "#team"; }).catch(fail); });
+      $("#tm-form").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var d = formData(e.target), perms = {};
+        SECTIONS.forEach(function (x) { var r = e.target.querySelector('input[name="perm_' + x[0] + '"]:checked'); if (r && r.value) perms[x[0]] = r.value; });
+        var out = { id: isNew ? undefined : m.id, name: d.name.trim(), username: d.username.trim().toLowerCase(), password: d.password, perms: perms, active: d.active, expires_at: d.expires_at ? new Date(d.expires_at).toISOString() : null };
+        var pw = d.password;
+        api("/api/admin/team", { method: "POST", body: out }).then(function (r) {
+          if (pw) {
+            var msg = "Sign in at " + location.origin + "/admin\nUsername: " + r.username + "\nPassword: " + pw;
+            shell("team", "Login ready", '<div class="' + CARD + ' p-6"><p class="font-display text-[22px] text-walnut">Send these details privately.</p><p class="mt-1 text-[14px] text-stone">The password won\'t be shown again. If it gets lost, set a new one.</p><pre id="tm-msg" class="mt-5 whitespace-pre-wrap border border-walnut/15 bg-paper p-4 font-mono text-[14px] text-walnut">' + esc(msg) + '</pre><div class="mt-5 flex flex-col gap-3 sm:flex-row"><button type="button" id="tm-copy" class="' + B_DARK + '">' + ic("copy", "h-4 w-4") + 'Copy</button><a class="' + B_OUT + '" target="_blank" rel="noopener" href="https://wa.me/?text=' + encodeURIComponent(msg) + '">' + ic("chat", "h-4 w-4") + 'Send on WhatsApp</a><a href="#team" class="' + B_OUT + '">Done</a></div></div>', "", "#team");
+            $("#tm-copy").addEventListener("click", function () { navigator.clipboard.writeText(msg).then(function () { toast("Copied"); }); });
+          } else { toast("Saved"); location.hash = "#team"; }
+        }).catch(fail);
+      });
+    }).catch(fail);
+  }
+
   /* ---------------------------------------------------- router */
+  function noAccess() { shell("", "No access", '<div class="' + CARD + ' p-10 text-center"><p class="font-display text-[22px] text-walnut">This part of the dashboard isn\'t available to you.</p><p class="mt-2 text-[15px] text-stone">Ask the owner if you need access.</p><a href="#overview" class="' + B_DARK + ' mt-6">Back to overview</a></div>'); }
+  var NEEDS = { artworks: "artworks", artwork: "artworks", artists: "artists", artist: "artists", inbox: "inbox", message: "inbox", orders: "orders", order: "orders", photos: "photos", settings: "settings" };
   function route() {
     var h = (location.hash || "#overview").slice(1), parts = h.split("/"), v = parts[0], arg = decodeURIComponent(parts.slice(1).join("/"));
-    ({ overview: viewOverview, artworks: viewArtworks, artwork: function () { viewArtwork(arg); }, artists: viewArtists, artist: function () { viewArtist(arg); },
+    if ((v === "team" || v === "member") && !(S.me && S.me.owner)) return noAccess();
+    if (NEEDS[v] && !can(NEEDS[v], "view")) return noAccess();
+    ({ team: viewTeam, member: function () { viewMember(arg); }, overview: viewOverview, artworks: viewArtworks, artwork: function () { viewArtwork(arg); }, artists: viewArtists, artist: function () { viewArtist(arg); },
        inbox: viewInbox, message: function () { viewMessage(arg); }, orders: viewOrders, order: function () { viewOrder(arg); }, photos: viewPhotos, settings: viewSettings }[v] || viewOverview)();
   }
-  window.addEventListener("hashchange", function () { api("/api/admin/session").then(function (s) { if (s.signedIn) route(); else renderLogin(); }); });
+  window.addEventListener("hashchange", function () { api("/api/admin/session").then(function (s) { setMe(s); if (s.signedIn) route(); else renderLogin(); }); });
 
   api("/api/admin/session").then(function (s) {
     if (!s.passwordSet) { renderLogin("The dashboard password has not been set yet in Cloudflare."); return; }
-    if (s.signedIn) route(); else renderLogin();
+    setMe(s); if (s.signedIn) route(); else renderLogin();
   }).catch(function () { renderLogin("Could not reach the server."); });
 })();

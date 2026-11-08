@@ -21,7 +21,9 @@ export async function db(env) {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS submissions (id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT, name TEXT, email TEXT, data TEXT, status TEXT DEFAULT 'new', notes TEXT DEFAULT '', created_at TEXT)"),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS orders (id TEXT PRIMARY KEY, token TEXT, submission_id INTEGER, status TEXT, data TEXT, created_at TEXT, updated_at TEXT)"),
-    env.DB.prepare("CREATE TABLE IF NOT EXISTS login_attempts (ip TEXT, at INTEGER)")
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS login_attempts (ip TEXT, at INTEGER)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS team (id TEXT PRIMARY KEY, username TEXT UNIQUE NOT NULL, name TEXT, pass_hash TEXT NOT NULL, salt TEXT NOT NULL, perms TEXT NOT NULL DEFAULT '{}', expires_at TEXT, active INTEGER DEFAULT 1, session_ver INTEGER DEFAULT 1, created_at TEXT, last_login TEXT)"),
+    env.DB.prepare("CREATE TABLE IF NOT EXISTS activity (id INTEGER PRIMARY KEY AUTOINCREMENT, who TEXT, action TEXT, at TEXT)")
   ]);
   const seeded = await env.DB.prepare("SELECT value FROM settings WHERE key = 'site'").first();
   if (!seeded) {
@@ -52,23 +54,54 @@ async function key(env) {
 const b64 = (buf) => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 const unb64 = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
 
-export async function makeSession(env, days = 30) {
-  const payload = b64(enc.encode(JSON.stringify({ exp: Date.now() + days * 864e5 })));
+export async function makeSession(env, days = 30, who = { u: "owner" }) {
+  const payload = b64(enc.encode(JSON.stringify({ exp: Date.now() + days * 864e5, ...who })));
   const sig = b64(await crypto.subtle.sign("HMAC", await key(env), enc.encode(payload)));
   return payload + "." + sig;
 }
-export async function checkSession(env, request) {
-  if (!env.ADMIN_PASSWORD) return false;
+
+// The sections a team member can be given. "view" or "edit" (edit includes view).
+export const SECTIONS = ["artworks", "artists", "inbox", "orders", "photos", "settings"];
+const ALL_EDIT = Object.fromEntries(SECTIONS.map((k) => [k, "edit"]));
+export function cleanPerms(p) {
+  const out = {};
+  for (const k of SECTIONS) if (p && (p[k] === "view" || p[k] === "edit")) out[k] = p[k];
+  return out;
+}
+
+// Who is signed in? The owner (master password from Cloudflare) or a team member from the database.
+export async function getUser(env, request) {
+  if (!env.ADMIN_PASSWORD) return null;
   const m = (request.headers.get("cookie") || "").match(/(?:^|;\s*)oa_session=([^;]+)/);
-  if (!m) return false;
+  if (!m) return null;
   const [payload, sig] = m[1].split(".");
-  if (!payload || !sig) return false;
+  if (!payload || !sig) return null;
+  let data;
   try {
     const ok = await crypto.subtle.verify("HMAC", await key(env), unb64(sig), enc.encode(payload));
-    if (!ok) return false;
-    const { exp } = JSON.parse(new TextDecoder().decode(unb64(payload)));
-    return exp > Date.now();
-  } catch (e) { return false; }
+    if (!ok) return null;
+    data = JSON.parse(new TextDecoder().decode(unb64(payload)));
+  } catch (e) { return null; }
+  if (!data || !(data.exp > Date.now())) return null;
+  if (!data.u || data.u === "owner") return { id: "owner", owner: true, name: "Owner", perms: ALL_EDIT };
+  const DB = await db(env);
+  const r = await DB.prepare("SELECT id, username, name, perms, expires_at, active, session_ver FROM team WHERE id = ?").bind(data.u).first();
+  if (!r || !r.active || r.session_ver !== data.v) return null;
+  if (r.expires_at && new Date(r.expires_at).getTime() <= Date.now()) return null;
+  return { id: r.id, owner: false, username: r.username, name: r.name || r.username, perms: cleanPerms(JSON.parse(r.perms || "{}")), expires_at: r.expires_at };
+}
+export async function checkSession(env, request) { return !!(await getUser(env, request)); }
+
+export async function hashPassword(password, salt) {
+  const base = await crypto.subtle.importKey("raw", enc.encode(String(password)), "PBKDF2", false, ["deriveBits"]);
+  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt: enc.encode(salt), iterations: 100000 }, base, 256);
+  return b64(bits);
+}
+export async function logActivity(DB, who, action) {
+  try {
+    await DB.prepare("INSERT INTO activity (who, action, at) VALUES (?, ?, ?)").bind(String(who).slice(0, 80), String(action).slice(0, 240), now()).run();
+    if (Math.random() < 0.05) await DB.prepare("DELETE FROM activity WHERE id NOT IN (SELECT id FROM activity ORDER BY id DESC LIMIT 1000)").run();
+  } catch (e) {}
 }
 export const sessionCookie = (value, maxAge) =>
   `oa_session=${value}; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=${maxAge}`;
