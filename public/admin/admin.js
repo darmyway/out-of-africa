@@ -388,7 +388,9 @@
       var live = isNew ? { title: "", artist: (S.artists[0] || {}).id, status: "available", images: [], price: null } : S.artworks.find(function (x) { return x.id === id; });
       if (!live) { shell("artworks", "Not found", '<p class="text-stone">This artwork no longer exists.</p>', "", "#artworks"); return; }
       var ART = isArtist(), P = (S.me && S.me.perms) || {};
-      var w = ART && live.review && live.review.changes && !live.review.rejected ? Object.assign({}, live, live.review.changes, { id: live.id, review: live.review }) : live;
+      var REV = !ART && pendingOf(live) && canReview("artworks");
+      var w = (ART || REV) && live.review && live.review.changes && !live.review.rejected ? Object.assign({}, live, live.review.changes, { id: live.id, review: live.review, featured: live.featured }) : live;
+      if (REV) var revNote = '<div class="mb-6 border border-walnut/15 bg-paper p-4 text-[14px] text-walnut">' + (live.review.isNew ? "Edit anything below, then <strong>Save and publish</strong>. Or save your edits and keep it hidden for now." : "The form below shows the <strong>proposed</strong> version. Adjust anything, then <strong>Save and publish</strong>. The live version doesn't change until you do.") + "</div>";
       if (ART && !S.artists.length) { shell("artworks", "New artwork", '<p class="text-stone">Your login isn\'t linked to an artist profile yet. Ask the owner to link it.</p>', "", "#artworks"); return; }
       var images = (w.images || []).slice();
       var pm = photoManager(images);
@@ -400,7 +402,7 @@
       if (ART && w.review) note = w.review.rejected ? '<div class="mb-6 border border-red-200 bg-red-50 p-4 text-[14px] text-walnut"><strong>Not approved.</strong> ' + (w.review.note ? "Note from the owner: “" + esc(w.review.note) + "”. " : "") + "Make changes and send it again.</div>"
         : '<div class="mb-6 border border-olive/40 bg-olive/10 p-4 text-[14px] text-walnut"><strong>Waiting for approval.</strong> ' + (w.review.isNew ? "This work stays hidden until the owner approves it." : "You're seeing your proposed version. The current version stays on the site until it's approved.") + " You can keep editing.</div>";
       else if (ART && !P.publish) note = '<div class="mb-6 border border-walnut/15 bg-paper p-4 text-[14px] text-stone">When you save, your changes are sent to the owner for approval before they go live.</div>';
-      var body = reviewPanel("artworks", live) + note +
+      var body = reviewPanel("artworks", live) + (REV ? revNote : "") + note +
         '<form id="aw-form" class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">' +
           '<div class="grid content-start gap-5">' +
             '<section class="' + CARD + ' grid gap-5 p-5"><h2 class="font-display text-[20px] text-walnut">Photos</h2>' + pm.html() + '<p class="text-[13px] text-stone">The first photo is the main image. Photos are resized automatically before upload. For a studio finish, send raw photos to Claude to edit first.</p></section>' +
@@ -424,7 +426,7 @@
               '<div><span class="' + LBL + '">Status</span><div class="grid grid-cols-2 gap-2">' + statusSeg + "</div></div>" +
               (ART ? "" : toggle("featured", !!w.featured, "Feature on homepage", "Shows first in the collection and homepage.")) +
               toggle("draft", !!w.draft, "Hide from website", "Keep it private while you finish the details.") +
-              '<div class="grid gap-2 pt-2"><button type="submit" class="' + B_DARK + ' h-12">' + (ART && !P.publish ? "Send for approval" : isNew ? "Publish artwork" : "Save changes") + "</button>" +
+              '<div class="grid gap-2 pt-2">' + (REV ? '<button type="submit" data-publish="1" class="' + B_OLIVE + ' h-12">Save and publish</button><button type="submit" class="' + B_OUT + '">Save edits, publish later</button>' : '<button type="submit" class="' + B_DARK + ' h-12">' + (ART && !P.publish ? "Send for approval" : isNew ? "Publish artwork" : "Save changes") + "</button>") +
               (isNew ? "" : '<a href="/artwork?id=' + encodeURIComponent(w.id) + '" target="_blank" rel="noopener" class="' + B_OUT + '">' + ic("ext", "h-4 w-4") + "View on site</a>") + "</div>" +
               (isNew || ART ? "" : '<button type="button" id="aw-del" class="justify-self-start text-[13px] font-medium text-red-700 underline underline-offset-4">Delete artwork</button>') +
             "</section>" +
@@ -441,9 +443,12 @@
         var out = Object.assign({}, w, d, { images: images, price: d.price === "" || d.price === undefined ? (ART && !P.prices ? live.price : null) : Number(d.price) });
         delete out.review;
         if (isNew) delete out.id;
-        var b = e.target.querySelector('button[type="submit"]'); b.disabled = true;
+        var pub = REV && e.submitter && e.submitter.getAttribute("data-publish") === "1";
+        if (pub) { out._publish = true; out.draft = false; }
+        var b = e.submitter || e.target.querySelector('button[type="submit"]'); b.disabled = true;
         api("/api/admin/artworks", { method: "POST", body: out }).then(function (r) {
           S.loaded.artworks = false;
+          if (REV) { toast(pub ? "Published" : "Edits saved, still waiting"); viewArtwork(live.id); return; }
           if (r.pending) { toast("Sent for approval"); notifyOwner((isNew ? "a new work, “" : "changes to “") + out.title + "”"); if (isNew) { location.hash = "#artwork/" + encodeURIComponent(r.item.id); } else { viewArtwork(live.id); } return; }
           toast(isNew ? "Artwork published" : "Saved");
           if (isNew) location.hash = "#artwork/" + encodeURIComponent(r.item.id); else { b.disabled = false; Object.assign(w, r.item); }
@@ -478,14 +483,15 @@
       if (ART && isNew) { location.replace("#artists"); return; }
       var live = isNew ? { name: "", disciplines: [], highlights: [], bio: [], acceptsCommissions: true } : S.artists.find(function (x) { return x.id === id; });
       if (!live) { shell("artists", "Not found", '<p class="text-stone">This artist no longer exists.</p>', "", "#artists"); return; }
-      var a = ART && live.review && live.review.changes && !live.review.rejected ? Object.assign({}, live, live.review.changes, { id: live.id, review: live.review }) : live;
+      var REV = !ART && pendingOf(live) && canReview("artists");
+      var a = (ART || REV) && live.review && live.review.changes && !live.review.rejected ? Object.assign({}, live, live.review.changes, { id: live.id, review: live.review, featured: live.featured }) : live;
       var portrait = a.portrait ? [a.portrait] : [];
       var pm = photoManager(portrait, null, true);
       var note = "";
       if (ART && a.review) note = a.review.rejected ? '<div class="mb-6 border border-red-200 bg-red-50 p-4 text-[14px] text-walnut"><strong>Profile changes not approved.</strong> ' + (a.review.note ? "Note: “" + esc(a.review.note) + "”. " : "") + "Edit and send again.</div>"
         : '<div class="mb-6 border border-olive/40 bg-olive/10 p-4 text-[14px] text-walnut"><strong>Waiting for approval.</strong> You\'re seeing your proposed version. Your current profile stays live until it\'s approved.</div>';
       else if (ART && !P.publish) note = '<div class="mb-6 border border-walnut/15 bg-paper p-4 text-[14px] text-stone">Profile changes are sent to the owner for approval before they go live.</div>';
-      var body = reviewPanel("artists", live) + note +
+      var body = reviewPanel("artists", live) + (REV ? '<div class="mb-6 border border-walnut/15 bg-paper p-4 text-[14px] text-walnut">The form below shows the <strong>proposed</strong> profile. Adjust anything, then <strong>Save and publish</strong>.</div>' : "") + note +
         '<form id="ar-form" class="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">' +
           '<div class="grid content-start gap-5"><section class="' + CARD + ' grid gap-5 p-5"><h2 class="font-display text-[20px] text-walnut">Profile</h2>' +
             field("Full name", input("name", a.name, "required")) +
@@ -500,7 +506,7 @@
           '<div class="grid content-start gap-5"><section class="' + CARD + ' grid gap-5 p-5 lg:sticky lg:top-24"><h2 class="font-display text-[20px] text-walnut">Portrait</h2>' + pm.html() +
             toggle("acceptsCommissions", !!a.acceptsCommissions, "Accepts commissions", "Shows the Commission button on their profile.") +
             (ART ? "" : toggle("featured", !!a.featured, "Featured artist", "Shown in the homepage feature section.")) +
-            '<div class="grid gap-2 pt-2"><button type="submit" class="' + B_DARK + ' h-12">' + (ART && !P.publish ? "Send for approval" : isNew ? "Add artist" : "Save changes") + "</button>" +
+            '<div class="grid gap-2 pt-2">' + (REV ? '<button type="submit" data-publish="1" class="' + B_OLIVE + ' h-12">Save and publish</button><button type="submit" class="' + B_OUT + '">Save edits, publish later</button>' : '<button type="submit" class="' + B_DARK + ' h-12">' + (ART && !P.publish ? "Send for approval" : isNew ? "Add artist" : "Save changes") + "</button>") +
             (isNew ? "" : '<a href="/artist?id=' + encodeURIComponent(a.id) + '" target="_blank" rel="noopener" class="' + B_OUT + '">' + ic("ext", "h-4 w-4") + "View profile</a>") + "</div>" +
             (isNew || ART ? "" : '<button type="button" id="ar-del" class="justify-self-start text-[13px] font-medium text-red-700 underline underline-offset-4">Delete artist</button>') +
           "</section></div>" +
@@ -519,8 +525,11 @@
         });
         delete out.review;
         if (isNew) delete out.id;
+        var pub = REV && e.submitter && e.submitter.getAttribute("data-publish") === "1";
+        if (pub) out._publish = true;
         api("/api/admin/artists", { method: "POST", body: out }).then(function (r) {
           S.loaded.artists = false;
+          if (REV) { toast(pub ? "Published" : "Edits saved, still waiting"); viewArtist(live.id); return; }
           if (r.pending) { toast("Sent for approval"); notifyOwner("profile changes for " + out.name); viewArtist(live.id); return; }
           toast(isNew ? "Artist added" : "Saved");
           if (isNew) location.hash = "#artist/" + encodeURIComponent(r.item.id); else Object.assign(a, r.item);

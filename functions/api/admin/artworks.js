@@ -38,7 +38,12 @@ export async function onRequestPost({ request, env, data }) {
       else { w = { ...existing, review: { ...review, changes: w } }; delete w.sort; }
     }
   } else if (existing && existing.review) {
-    w.review = existing.review;                                        // keep an artist's pending change until it's reviewed
+    const r = existing.review;
+    if (body._publish) {                                               // reviewer edited it and published: goes live as saved
+      if (r.isNew) w.draft = false;
+    } else if (r.changes && !r.rejected) {                             // reviewer tweaked the proposal: live version stays untouched
+      w = { ...existing, review: { ...r, changes: w, edited_by: u.owner ? "Owner" : u.username } }; delete w.sort;
+    } else w.review = r;                                               // new work still waiting: keep it hidden and queued
   }
 
   if (existing) await DB.prepare("UPDATE artworks SET data = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(w), now(), id).run();

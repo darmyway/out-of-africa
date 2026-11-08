@@ -26,7 +26,12 @@ export async function onRequestPost({ request, env, data }) {
   if (u.artist) {
     a.featured = !!existing.featured;
     if (!u.perms.publish) { a = { ...existing, review: { by: u.username, at: now(), changes: a } }; delete a.sort; }
-  } else if (existing && existing.review) a.review = existing.review;
+  } else if (existing && existing.review) {
+    const r = existing.review;
+    if (body._publish) { /* published as saved */ }
+    else if (r.changes && !r.rejected) { a = { ...existing, review: { ...r, changes: a, edited_by: u.owner ? "Owner" : u.username } }; delete a.sort; }
+    else a.review = r;
+  }
 
   if (existing) await DB.prepare("UPDATE artists SET data = ?, updated_at = ? WHERE id = ?").bind(JSON.stringify(a), now(), id).run();
   else {
